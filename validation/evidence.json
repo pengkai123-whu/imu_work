@@ -1,0 +1,181 @@
+{
+  "date": "2026-10-29",
+  "environment": {
+    "python": "3.10.18 | packaged by conda-forge | (main, Jun  4 2025, 14:42:04) [MSC v.1943 64 bit (AMD64)]",
+    "platform": "Windows-10-10.0.26200-SP0",
+    "torch": "2.9.0.dev20250813+cu129",
+    "numpy": "2.2.6",
+    "h5py": "3.14.0",
+    "cuda": "12.9",
+    "gpu": "NVIDIA GeForce RTX 5060 Laptop GPU",
+    "vram_gib": 7.95953369140625
+  },
+  "real_h5_smoke": {
+    "passed": true,
+    "device": "cuda",
+    "gpu": "NVIDIA GeForce RTX 5060 Laptop GPU",
+    "checkpoint_resume_epoch": 4,
+    "records": 2,
+    "windows": 78,
+    "policy_mode": "dynamic",
+    "note": "execution check only; tiny subset and three batches per epoch; not an accuracy benchmark"
+  },
+  "batch_check": {
+    "passed": true,
+    "gpu": "NVIDIA GeForce RTX 5060 Laptop GPU",
+    "torch": "2.9.0.dev20250813+cu129",
+    "chosen": 8192,
+    "real_batch": 8192,
+    "probes": [
+      {
+        "batch": 128,
+        "seconds": 0.021558599999480066,
+        "samples_per_second": 5937.305762112893,
+        "peak_reserved_gib": 0.044921875
+      },
+      {
+        "batch": 512,
+        "seconds": 0.02111533333360664,
+        "samples_per_second": 24247.78202222901,
+        "peak_reserved_gib": 0.12109375
+      },
+      {
+        "batch": 2048,
+        "seconds": 0.021561099999720074,
+        "samples_per_second": 94985.8773451535,
+        "peak_reserved_gib": 0.365234375
+      },
+      {
+        "batch": 4096,
+        "seconds": 0.021720433333636418,
+        "samples_per_second": 188578.1898124889,
+        "peak_reserved_gib": 0.693359375
+      },
+      {
+        "batch": 8192,
+        "seconds": 0.043370766666460746,
+        "samples_per_second": 188882.98800433692,
+        "peak_reserved_gib": 1.35546875
+      }
+    ],
+    "updates": [
+      {
+        "nll_fraction": 0.0,
+        "loss": 0.19967058300971985,
+        "max_embedding_update": 0.0002499781548976898
+      },
+      {
+        "nll_fraction": 0.5,
+        "loss": 0.5397299528121948,
+        "max_embedding_update": 0.00025012344121932983
+      },
+      {
+        "nll_fraction": 1.0,
+        "loss": 0.871820867061615,
+        "max_embedding_update": 0.0002473955973982811
+      }
+    ],
+    "note": "Synthetic probe throughput excludes data loading; real-data updates check execution, not model accuracy."
+  },
+  "notebook": {
+    "passed": true,
+    "cell_count": 14,
+    "schema": "nbformat validated",
+    "executed_cells": [
+      1,
+      3,
+      4,
+      5,
+      7
+    ],
+    "smoke_name": "notebook_smoke_20261029_135826",
+    "note": "local spk CUDA execution; Colab Drive/download/full training not executed"
+  },
+  "full_cache": {
+    "records": {
+      "train": 1479,
+      "valid": 422,
+      "test": 213
+    },
+    "samples": 68521724,
+    "train_samples": 47395046,
+    "identity": "637ca6d145c80d1581644e59619374649fd5ffd01a2de0e66c46c73756f9f4e4",
+    "mean": [
+      -0.0027128593763317724,
+      0.002241242398629894,
+      9.861567419172804,
+      -2.4320652362642866e-05,
+      7.808081925405943e-05,
+      0.0032130199839021656
+    ],
+    "std": [
+      1.3443044946079552,
+      1.3601214707115263,
+      1.8964719750739316,
+      0.29229590596011534,
+      0.29818584738301346,
+      0.4821572040601022
+    ]
+  },
+  "full_cache_short_training": {
+    "passed": true,
+    "epochs": 4,
+    "batches_per_epoch": 3,
+    "batch": [
+      8192,
+      8192,
+      8192,
+      8192
+    ],
+    "nll_fractions": [
+      0.0,
+      0.5,
+      1.0,
+      1.0
+    ],
+    "amp_skipped_steps": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "evaluation": {
+    "final": {
+      "records": 213,
+      "windows": 36105,
+      "mode": "final",
+      "exit_histogram": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        36105
+      ]
+    },
+    "early": {
+      "records": 213,
+      "windows": 36105,
+      "mode": "dynamic",
+      "exit_histogram": [
+        36105,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  },
+  "llio_model_sha256": "f6391e0455bf959b1c51d730c2043707b7487d5c230d1cc4dc753116a9bbabb5",
+  "limitations": [
+    "Execution checks only; no complete converged training",
+    "Colab hosted runtime and Drive synchronization not executed",
+    "CUDA OOM retry code reviewed; no deliberately induced OOM"
+  ]
+}

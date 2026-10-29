@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.venv/
+cache/
+runs/
+*.h5
+*.pt
+*.npy
+*.npz
+configs/active.json
