@@ -47,19 +47,19 @@ python test.py
 
 它读取 runs/yt/best.pt，先在验证集校准不确定度并选择早退阈值，然后分别在全部测试记录上评估最终出口和动态早退。测试集不参与选阈值。结果保存到 checkpoint 同目录的 policy.json、final_test.json、early_test.json、summary.json。
 
-输出同时列出完整记录与固定 60 秒片段的 ATE / 30 秒 RTE，XYZ 和 XY 分开。固定片段从每条记录的零时刻开始连续切分，采用全部完整片段，每段只重置起点平移，不做旋转或尺度拟合；不足 60 秒的尾段不进入补充指标，但完整记录指标仍使用所有预测。先在每条记录内平均片段 RMSE，再对符合长度要求的记录等权平均。报告含片段数、记录覆盖率、窗口覆盖率和尾段数量；片段内 RTE 不包含跨片段边界的 30 秒起止对。这是补充评估协议，不能替代完整轨迹指标，也不能直接声称为论文原协议。
+主输出为三个指标（米）：30 秒片段 ATE、30 秒 RTE、单次 1 秒位移 RMSE。终端主表使用 XYZ 向量误差，JSON 的 primary_metrics 同时保存 XY 结果与协议。ATE 从每条记录零时刻起连续切分，采用全部完整、不重叠的 30 秒片段，每段只重置起点平移，不做旋转或尺度拟合；不足 30 秒的尾段不进入片段 ATE，报告披露覆盖率。先在每条记录内平均片段 ATE，再跨记录等权平均。30 秒 RTE 采用完整记录内所有合法起止对（每秒一个起点），每条记录内计算 RMSE 后跨记录等权平均，不受 ATE 分段影响，也包含尾段中的合法起止对。单次位移 RMSE 在全部 1 秒预测上汇总平方误差后开方。完整记录 ATE 与片段内 RTE 保留在详细 JSON，分别位于 macro / fixed_duration 中，不能与主输出混用。
 
 自定义实验：
 
 ~~~powershell
 python test.py --checkpoint runs/experiment2/best.pt
 python test.py --checkpoint runs/experiment2/best.pt --batch 256 --out runs/experiment2/reports
-python test.py --checkpoint runs/yt/best.pt --policy runs/yt/policy.json --out runs/yt/evaluation_60s --segment-seconds 60
+python test.py --checkpoint runs/yt/best.pt --policy runs/yt/policy.json --out runs/yt/evaluation_30s
 ~~~
 
 --max-windows 只限制验证集校准窗口数，不裁剪测试集。默认最多 50000 个验证窗口，允许相对最终出口最多 3% 的验证位移 RMSE 增加；没有符合精度与算量条件的阈值时自动用最终出口。
 
---policy 可复用与 checkpoint 绑定的已冻结早退策略，避免重新校准；--segment-seconds 指定固定片段时长，至少 30 秒且为预测间隔的整数倍。片段时长应在比较模型前统一确定，不根据测试误差挑选最有利的时长、起点或片段。重新评估建议指定独立 --out，以保留旧报告。
+--policy 可复用与 checkpoint 绑定的已冻结早退策略，避免重新校准；--segment-seconds 默认 30 秒，只改变 ATE 片段时长，RTE 间隔始终是 30 秒。片段时长至少 30 秒且为预测间隔的整数倍，应在比较模型前统一确定，不根据测试误差挑选最有利的时长、起点或片段。重新评估建议指定独立 --out，以保留旧报告。30 秒片段 ATE 是当前任务约定，不是已确认的论文原协议，也不表示连续运行的完整轨迹误差。
 
 last.pt 用于续训，best.pt 仅从达到纯 NLL 阶段的模型中按最终出口验证 RMSE 选择，mse_last.pt 保留均值预训练模型。metrics.jsonl 记录损失、各出口验证 RMSE、batch、AMP 跳过步数和耗时，batch_probe.json 保存显存与吞吐探测。每轮结束保存 checkpoint，未完成一轮的进度不保存。
 

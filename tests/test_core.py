@@ -110,4 +110,16 @@ class CoreTests(unittest.TestCase):
         with self.assertRaises(ValueError): fixed_duration_metrics(pred,target,1.,60.5)
         with self.assertRaises(ValueError): fixed_duration_metrics(pred,target,1.,20.)
 
+    def test_30s_ate_and_relative_endpoint_error(self):
+        target=np.zeros((95,3)); pred=np.zeros_like(target); pred[:,0]=.02
+        result=fixed_duration_metrics(pred,target,1.)
+        self.assertEqual(result['segment_seconds'],30.)
+        self.assertEqual(result['segments'],3)
+        self.assertEqual(result['excluded_tail_windows'],5)
+        expected=.02*float(np.sqrt(np.mean(np.arange(31.)**2)))
+        self.assertAlmostEqual(result['macro']['ate_xyz'],expected)
+        self.assertAlmostEqual(result['macro']['rte30_xyz'],.6)
+        self.assertAlmostEqual(trajectory_metrics(pred,target,1.)['rte30_xyz'],.6)
+        self.assertGreater(trajectory_metrics(pred,target,1.)['ate_xyz'],expected)
+
 if __name__=='__main__': unittest.main()

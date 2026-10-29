@@ -13,7 +13,7 @@ def main():
     parser.add_argument('--batch',type=int,default=512)
     parser.add_argument('--max-windows',type=int,default=50000,help='Validation calibration window cap, never a test cap')
     parser.add_argument('--tolerance',type=float,default=.03)
-    parser.add_argument('--segment-seconds',type=float,default=60.,help='Supplementary fixed-duration metrics; all complete segments, no best-segment selection')
+    parser.add_argument('--segment-seconds',type=float,default=30.,help='ATE segment duration, default 30s; all complete segments, no best-segment selection')
     parser.add_argument('--policy',help='Reuse a frozen policy instead of recalibrating on valid')
     args=parser.parse_args()
     if args.batch<1: parser.error('--batch must be positive')
@@ -40,20 +40,21 @@ def main():
     reports={}
     for name,path in [('final',None),('early',policy)]:
         report=evaluate(checkpoint,cache,out/(name+'_test.json'),path,'test',args.device,args.batch,args.segment_seconds)
-        reports[name]={key:report[key] for key in ['mode','records','windows','displacement_rmse','macro','exit_histogram','linear_conv_flops_per_window','fixed_duration']}
+        reports[name]={key:report[key] for key in ['mode','records','windows','displacement_rmse','macro','exit_histogram','linear_conv_flops_per_window','primary_metrics','fixed_duration']}
     write_json(out/'summary.json',reports)
-    print('\nTrajectory metrics in meters; XYZ and XY are separate. Full-record results retained.')
-    print(f'{"Mode / protocol":<30} {"ATE XYZ":>10} {"ATE XY":>10} {"RTE30 XYZ":>10} {"RTE30 XY":>10}')
+    seconds=reports['final']['primary_metrics']['displacement_seconds']
+    print('\nPrimary metrics (XYZ vector errors, meters); full-record and XY metrics retained in JSON.')
+    print(f'{"Mode":<12} {"ATE"+format(args.segment_seconds,"g")+"s XYZ":>15} {"RTE30s XYZ":>15} {"Disp"+format(seconds,"g")+"s RMSE":>15}')
     for name,report in reports.items():
-        for label,metrics in [('full record',report['macro']),
-                              (f'{args.segment_seconds:g}s segments',report['fixed_duration']['macro'])]:
-            values=[f'{metrics[k]:.4f}' if metrics[k] is not None else 'N/A'
-                    for k in ['ate_xyz','ate_xy','rte30_xyz','rte30_xy']]
-            print(f'{name+" / "+label:<30} '+ ' '.join(f'{v:>10}' for v in values))
+        metrics=report['primary_metrics']
+        values=[f'{metrics[k]:.4f}' if metrics[k] is not None else 'N/A'
+                for k in ['ate_xyz','rte30_xyz','displacement_rmse_xyz']]
+        print(f'{name:<12} '+ ' '.join(f'{v:>15}' for v in values))
     fixed=reports['final']['fixed_duration']
     print(f'Fixed-duration coverage: {fixed["segments"]} segments, {fixed["eligible_records"]}/{reports["final"]["records"]} records, '
-          f'{fixed["coverage_fraction"]:.2%} windows; {fixed["excluded_tail_windows"]} tail windows excluded from supplementary metrics only.')
+          f'{fixed["coverage_fraction"]:.2%} windows; {fixed["excluded_tail_windows"]} tail windows excluded from segment ATE only.')
     print('Segment scores are averaged within each record, then across records. No rotation fitting or best-segment selection.')
+    print('RTE30 uses all legal 30s pairs within full records. Displacement RMSE uses all 1-step intervals, including tails.')
     print('Evaluation complete. Reports:',out,flush=True)
 
 

@@ -62,7 +62,7 @@ def trajectory_metrics(pred, target, seconds):
     row['rte_actual_seconds']=lag*seconds
     row['final_error_xyz']=float(np.linalg.norm(error[-1])); return row
 
-def fixed_duration_metrics(pred, target, seconds, segment_seconds=60.):
+def fixed_duration_metrics(pred, target, seconds, segment_seconds=30.):
     """All complete, non-overlapping segments from t=0; never rank by error.
 
     Each segment is translated to its own origin. No rotation/scale alignment.
@@ -85,7 +85,7 @@ def fixed_duration_metrics(pred, target, seconds, segment_seconds=60.):
                 excluded_tail_windows=len(pred)-len(rows)*steps,macro=macro,per_segment=rows)
 
 @torch.no_grad()
-def evaluate(checkpoint,cache,output,policy_path=None,split='test',device='auto',batch=512,segment_seconds=60.):
+def evaluate(checkpoint,cache,output,policy_path=None,split='test',device='auto',batch=512,segment_seconds=30.):
     device=device_for(device); saved,meta,model,mean,std=context(checkpoint,cache,device)
     policy=json.loads(Path(policy_path).read_text(encoding='utf-8')) if policy_path else None
     if policy and (policy['checkpoint_sha256']!=file_hash(checkpoint) or policy['cache_identity']!=meta['identity']):
@@ -95,7 +95,7 @@ def evaluate(checkpoint,cache,output,policy_path=None,split='test',device='auto'
     # Reject an invalid protocol before expensive inference.
     fixed_duration_metrics(np.empty((0,3)),np.empty((0,3)),seconds,segment_seconds)
     if not records: raise ValueError('no records for evaluation')
-    costs=model.operation_costs(); per_record=[]; total_sq=0.; total_n=0; histogram=np.zeros(model.depth,dtype=np.int64); total_cost=0.
+    costs=model.operation_costs(); per_record=[]; total_sq=0.; total_sq_xy=0.; total_n=0; histogram=np.zeros(model.depth,dtype=np.int64); total_cost=0.
     dynamic=policy is not None and policy['mode']=='dynamic'
     for r in records:
         ds=Windows(cache,split,cfg['window'],cfg['horizon'],cfg['horizon'],r['name'])
@@ -110,11 +110,11 @@ def evaluate(checkpoint,cache,output,policy_path=None,split='test',device='auto'
             checked_tensor(pred,'test prediction'); histogram+=np.bincount(ex,minlength=model.depth)
             predictions.append(pred.cpu().numpy()); targets.append(y.numpy())
         p=np.concatenate(predictions); y=np.concatenate(targets); sq=np.sum((p-y)**2,axis=1)
-        total_sq+=float(sq.sum()); total_n+=len(sq)
+        total_sq+=float(sq.sum()); total_sq_xy+=float(np.sum((p[:,:2]-y[:,:2])**2)); total_n+=len(sq)
         row=dict(record=r['name'],windows=len(p),displacement_rmse=float(np.sqrt(sq.mean())),**trajectory_metrics(p,y,cfg['horizon']/cfg['fs']))
         row['fixed_duration']=fixed_duration_metrics(p,y,seconds,segment_seconds)
         per_record.append(row)
-        print(f"{r['name']} displacement={row['displacement_rmse']:.4f} ATE_XYZ={row['ate_xyz']:.4f}",flush=True)
+        print(f"{r['name']} displacement={row['displacement_rmse']:.4f} full_ATE_XYZ={row['ate_xyz']:.4f}",flush=True)
     macro={key:float(np.mean([r[key] for r in per_record if r[key] is not None])) if any(r[key] is not None for r in per_record) else None
            for key in ['ate_xyz','ate_xy','rte30_xyz','rte30_xy']}
     eligible=[r['fixed_duration'] for r in per_record if r['fixed_duration']['segments']>0]
@@ -129,12 +129,19 @@ def evaluate(checkpoint,cache,output,policy_path=None,split='test',device='auto'
         alignment='initial translation at every segment start only; no rotation or scale fitting',
         rte_protocol='30-second endpoint differences within each segment; pairs crossing segment boundaries excluded',
         macro=segment_macro)
+    primary=dict(units='meters',ate_segment_seconds=segment_seconds,displacement_seconds=seconds,
+        ate_xyz=segment_macro['ate_xyz'],ate_xy=segment_macro['ate_xy'],
+        rte30_xyz=macro['rte30_xyz'],rte30_xy=macro['rte30_xy'],
+        displacement_rmse_xyz=float(np.sqrt(total_sq/total_n)),displacement_rmse_xy=float(np.sqrt(total_sq_xy/total_n)),
+        ate_protocol='all complete fixed-duration segments; initial translation per segment; record-balanced mean',
+        rte_protocol='all legal 30-second endpoint pairs within full records; record-balanced RMSE mean; includes record tails',
+        displacement_protocol='pooled vector RMSE across all predicted displacement intervals; includes record tails')
     report=dict(split=split,records=len(records),windows=total_n,mode='dynamic' if dynamic else 'final',
         checkpoint_sha256=file_hash(checkpoint),cache_identity=meta['identity'],data_limits=meta['limits'],
         trajectory_protocol='non-overlapping predicted displacements, initial translation only, no heading alignment',
         horizon_seconds=cfg['horizon']/cfg['fs'],displacement_rmse=float(np.sqrt(total_sq/total_n)),macro=macro,
         exit_histogram=histogram.tolist(),linear_conv_flops_per_window=total_cost/total_n,
         cost_note='multiply-add counted as 2 FLOPs; all visited heads included; excludes activation, routing, memory; no latency claim',
-        fixed_duration=fixed,per_record=per_record)
-    write_json(output,report); print('Evaluation:',json.dumps({k:report[k] for k in ['mode','displacement_rmse','macro','exit_histogram']}),flush=True)
+        primary_metrics=primary,fixed_duration=fixed,per_record=per_record)
+    write_json(output,report); print('Evaluation:',json.dumps({k:report[k] for k in ['mode','primary_metrics','exit_histogram']}),flush=True)
     return report

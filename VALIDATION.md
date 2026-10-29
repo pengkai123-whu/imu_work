@@ -32,3 +32,5 @@ python tools/full_data_check.py
 本地原始日志、配置、checkpoint 和 JSON 报告保存在 runs/，不进入 Git。全量缓存保存在 cache/yt，可供本地后续分析。当前启动方式为 python train.py / python test.py。
 
 后续正式训练模型的固定 60 秒补充测试使用已冻结的 runs/yt/policy.json，未重新训练、校准或按测试误差挑选窗口。515 个完整片段覆盖全部 213 条记录，覆盖 30,900/36,105 个预测区间，5,205 个尾段区间只从补充指标排除。动态早退的完整 XYZ ATE / RTE30 为 1.936220 / 1.103933 m；60 秒片段为 1.108257 / 1.058129 m。这是评估范围变化，不是模型精度提升，也不能直接与论文数值比较。机器可读结果见 validation/fixed_duration_evaluation.json，完整分段明细位于 runs/yt/evaluation_60s/。
+
+当前主表按用户约定改为 30 秒片段 ATE、完整记录内全起点 30 秒 RTE、单次 1 秒位移 RMSE。新增第 8 项已知偏置测试，8 项全部通过；相同模型与冻结策略在 CUDA 上复测全部测试记录。30 秒 ATE 共 1108 段、213 条记录，覆盖 33240/36105 个区间（92.06%），余下 2865 个区间只从片段 ATE 排除。动态早退三个 XYZ 指标分别为 0.670088 / 1.103933 / 0.099665 m。完整记录指标、出口分布、位移 RMSE 均与之前逐值一致。见 validation/primary_metrics_30s.json 与 runs/yt/evaluation_30s/summary.json。
