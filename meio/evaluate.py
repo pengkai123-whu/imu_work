@@ -188,11 +188,11 @@ def evaluate(checkpoint,cache,output,policy_path=None,split='test',device='auto'
         alignment='initial translation at every segment start only; no rotation or scale fitting',
         rte_protocol='30-second endpoint differences within each segment; pairs crossing segment boundaries excluded',
         macro=segment_macro)
-    primary=dict(units='meters',ate_segment_seconds=segment_seconds,displacement_seconds=displacement_seconds,update_seconds=seconds,
-        ate_xyz=segment_macro['ate_xyz'],ate_xy=segment_macro['ate_xy'],
+    primary=dict(protocol_version=2,units='meters',ate_scope='full_record',displacement_seconds=displacement_seconds,update_seconds=seconds,
+        ate_xyz=macro['ate_xyz'],ate_xy=macro['ate_xy'],
         rte30_xyz=macro['rte30_xyz'],rte30_xy=macro['rte30_xy'],
         displacement_rmse_xyz=float(np.sqrt(total_sq/total_n)),displacement_rmse_xy=float(np.sqrt(total_sq_xy/total_n)),
-        ate_protocol='all complete fixed-duration segments; initial translation per segment; record-balanced mean',
+        ate_protocol='entire reconstructed trajectory of every record, including tails; initial translation only; no intermediate reset, rotation or scale fitting; per-record RMSE then equal-weight record mean',
         rte_protocol='all legal 30-second endpoint pairs within full records; record-balanced RMSE mean; includes record tails',
         displacement_protocol='pooled vector RMSE of full-horizon predictions on every update; overlapping outputs included; includes record tails')
     oracle_eligible=[r['fixed_duration']['macro']['ate_xyz'] for r in oracle_rows if r['fixed_duration']['segments']]
@@ -201,6 +201,8 @@ def evaluate(checkpoint,cache,output,policy_path=None,split='test',device='auto'
         trajectory_protocol=('causal window-average velocity times update interval; first output endpoint initializes origin; actual GT endpoint increments; initial translation only'
                              if stride<cfg['horizon'] else 'non-overlapping predicted displacements, initial translation only, no heading alignment'),
         update_seconds=seconds,trajectory_intervals=total_intervals,
+        rte30_eligible_records=sum(r['rte30_xyz'] is not None for r in per_record),
+        rte30_excluded_short_records=sum(r['rte30_xyz'] is None for r in per_record),
         integration_oracle=dict(ate_xyz=float(np.mean([r['ate_xyz'] for r in oracle_rows])),
             rte30_xyz=float(np.mean([r['rte30_xyz'] for r in oracle_rows if r['rte30_xyz'] is not None])) if any(r['rte30_xyz'] is not None for r in oracle_rows) else None,
             segment_ate_xyz=float(np.mean(oracle_eligible)) if oracle_eligible else None,

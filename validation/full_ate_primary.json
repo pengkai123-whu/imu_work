@@ -1,0 +1,44 @@
+{
+  "device": "cuda",
+  "full_test_records": 213,
+  "windows": 36105,
+  "existing_numeric_metrics_unchanged": true,
+  "half_second_update_cli_passed": true,
+  "primary_metrics_independent_of_supplementary_segment_duration": true,
+  "training_model_and_configs_unchanged": true,
+  "summary": {
+    "final": {
+      "protocol_version": 2,
+      "units": "meters",
+      "ate_scope": "full_record",
+      "displacement_seconds": 1.0,
+      "update_seconds": 1.0,
+      "ate_xyz": 1.8549860254870243,
+      "ate_xy": 1.8012156049548904,
+      "rte30_xyz": 1.058897072419063,
+      "rte30_xy": 1.0458562730149668,
+      "displacement_rmse_xyz": 0.0974513188383057,
+      "displacement_rmse_xy": 0.09623927161659815,
+      "ate_protocol": "entire reconstructed trajectory of every record, including tails; initial translation only; no intermediate reset, rotation or scale fitting; per-record RMSE then equal-weight record mean",
+      "rte_protocol": "all legal 30-second endpoint pairs within full records; record-balanced RMSE mean; includes record tails",
+      "displacement_protocol": "pooled vector RMSE of full-horizon predictions on every update; overlapping outputs included; includes record tails"
+    },
+    "early": {
+      "protocol_version": 2,
+      "units": "meters",
+      "ate_scope": "full_record",
+      "displacement_seconds": 1.0,
+      "update_seconds": 1.0,
+      "ate_xyz": 1.9362204372024667,
+      "ate_xy": 1.8943897649346935,
+      "rte30_xyz": 1.1039328562048067,
+      "rte30_xy": 1.0925883120135398,
+      "displacement_rmse_xyz": 0.09966543069339759,
+      "displacement_rmse_xy": 0.09847919879734765,
+      "ate_protocol": "entire reconstructed trajectory of every record, including tails; initial translation only; no intermediate reset, rotation or scale fitting; per-record RMSE then equal-weight record mean",
+      "rte_protocol": "all legal 30-second endpoint pairs within full records; record-balanced RMSE mean; includes record tails",
+      "displacement_protocol": "pooled vector RMSE of full-horizon predictions on every update; overlapping outputs included; includes record tails"
+    }
+  },
+  "note": "Full-data results belong to the legacy trained checkpoint. New half-second update model checked using a small-data execution checkpoint only."
+}

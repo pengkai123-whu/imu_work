@@ -13,7 +13,7 @@ def main():
     parser.add_argument('--batch',type=int,default=512)
     parser.add_argument('--max-windows',type=int,default=50000,help='Validation calibration window cap, never a test cap')
     parser.add_argument('--tolerance',type=float,default=.03)
-    parser.add_argument('--segment-seconds',type=float,default=30.,help='ATE segment duration, default 30s; all complete segments, no best-segment selection')
+    parser.add_argument('--segment-seconds',type=float,default=30.,help='Supplementary segment ATE duration only; primary ATE always uses full records')
     parser.add_argument('--policy',help='Reuse a frozen policy instead of recalibrating on valid')
     parser.add_argument('--selection-split',choices=['train','valid'],default='valid')
     parser.add_argument('--raw-sigma',action='store_true',help='Disable scale calibration; closer to paper threshold search')
@@ -49,19 +49,26 @@ def main():
     modes=[('final',None)] if final_only else [('final',None),('early',policy)]
     for name,path in modes:
         report=evaluate(checkpoint,cache,out/(name+'_test.json'),path,'test',args.device,args.batch,args.segment_seconds)
-        reports[name]={key:report[key] for key in ['mode','records','windows','displacement_rmse','macro','exit_histogram','linear_conv_flops_per_window','linear_conv_flops_per_second','primary_metrics','fixed_duration','update_seconds','trajectory_intervals','trajectory_protocol','integration_oracle']}
+        reports[name]={key:report[key] for key in ['mode','records','windows','displacement_rmse','macro','exit_histogram','linear_conv_flops_per_window','linear_conv_flops_per_second','primary_metrics','fixed_duration','update_seconds','trajectory_intervals','trajectory_protocol','integration_oracle','rte30_eligible_records','rte30_excluded_short_records']}
     write_json(out/'summary.json',reports)
     seconds=reports['final']['primary_metrics']['displacement_seconds']
     print('Prediction horizon:',seconds,'s; update interval:',reports['final']['update_seconds'],'s')
-    print('\nPrimary metrics (XYZ vector errors, meters); full-record and XY metrics retained in JSON.')
-    print(f'{"Mode":<12} {"ATE"+format(args.segment_seconds,"g")+"s XYZ":>15} {"RTE30s XYZ":>15} {"Disp"+format(seconds,"g")+"s RMSE":>15}')
+    print('\nPrimary metrics (XYZ vector errors, meters): full-record ATE, RTE30s, displacement RMSE. XY retained in JSON.')
+    print(f'{"Mode":<12} {"Full ATE XYZ":>15} {"RTE30s XYZ":>15} {"Disp"+format(seconds,"g")+"s RMSE":>15}')
     for name,report in reports.items():
         metrics=report['primary_metrics']
         values=[f'{metrics[k]:.4f}' if metrics[k] is not None else 'N/A'
                 for k in ['ate_xyz','rte30_xyz','displacement_rmse_xyz']]
         print(f'{name:<12} '+ ' '.join(f'{v:>15}' for v in values))
     fixed=reports['final']['fixed_duration']
-    print(f'Fixed-duration coverage: {fixed["segments"]} segments, {fixed["eligible_records"]}/{reports["final"]["records"]} records, '
+    print('Full-record ATE includes all reconstructed trajectory endpoints and tails, with one initial translation per record; no intermediate reset, rotation or scale fitting.')
+    print('ATE and RTE are RMSEs per record, then averaged equally over eligible records. Displacement RMSE is pooled over all prediction windows.')
+    print(f'RTE30 eligible records: {reports["final"]["rte30_eligible_records"]}; excluded short records: {reports["final"]["rte30_excluded_short_records"]}.')
+    print(f'\nSupplementary segment ATE ({args.segment_seconds:g}s; excluded from primary table):')
+    for name,report in reports.items():
+        score=report['fixed_duration']['macro']['ate_xyz']
+        print(f'{name}: XYZ ATE = {score:.4f} m' if score is not None else f'{name}: XYZ ATE = N/A')
+    print(f'Supplementary coverage: {fixed["segments"]} segments, {fixed["eligible_records"]}/{reports["final"]["records"]} records, '
           f'{fixed["coverage_fraction"]:.2%} trajectory intervals; {fixed["excluded_tail_windows"]} tail intervals excluded from segment ATE only.')
     print('Segment scores are averaged within each record, then across records. No rotation fitting or best-segment selection.')
     print(f'RTE30 uses all legal 30s pairs on the reconstructed trajectory. Displacement RMSE uses all {seconds:g}s outputs, including tails.')
