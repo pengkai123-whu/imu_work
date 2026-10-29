@@ -1,0 +1,98 @@
+{
+  "checkpoint_sha256": "3c8dabe65cde535658954e8a19f8409eb509d0a755a5cdc619a6044a7a44e6d3",
+  "cache_identity": "637ca6d145c80d1581644e59619374649fd5ffd01a2de0e66c46c73756f9f4e4",
+  "protocol_note": "Supplementary fixed 60s evaluation, all complete nonoverlapping segments from each record start; full-record results retained; not a model improvement or verified paper protocol",
+  "summary": {
+    "final": {
+      "mode": "final",
+      "records": 213,
+      "windows": 36105,
+      "displacement_rmse": 0.0974513188383057,
+      "macro": {
+        "ate_xyz": 1.8549860254870243,
+        "ate_xy": 1.8012156049548904,
+        "rte30_xyz": 1.058897072419063,
+        "rte30_xy": 1.0458562730149668
+      },
+      "exit_histogram": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        36105
+      ],
+      "linear_conv_flops_per_window": 4601344.0,
+      "fixed_duration": {
+        "segment_seconds": 60.0,
+        "segments": 515,
+        "eligible_records": 213,
+        "excluded_short_records": 0,
+        "covered_windows": 30900,
+        "excluded_tail_windows": 5205,
+        "coverage_fraction": 0.8558371416701288,
+        "aggregation": "arithmetic mean of segment RMSEs within each record, then equal-weight mean over eligible records",
+        "selection": "all complete non-overlapping segments starting at record time zero; incomplete tails excluded; no error-based selection",
+        "alignment": "initial translation at every segment start only; no rotation or scale fitting",
+        "rte_protocol": "30-second endpoint differences within each segment; pairs crossing segment boundaries excluded",
+        "macro": {
+          "ate_xyz": 1.0528496580448592,
+          "ate_xy": 1.0355628771586147,
+          "rte30_xyz": 1.0088713592784293,
+          "rte30_xy": 0.9952005623239747,
+          "final_error_xyz": 1.6281496342414643
+        }
+      }
+    },
+    "early": {
+      "mode": "dynamic",
+      "records": 213,
+      "windows": 36105,
+      "displacement_rmse": 0.09966543069339759,
+      "macro": {
+        "ate_xyz": 1.9362204372024667,
+        "ate_xy": 1.8943897649346935,
+        "rte30_xyz": 1.1039328562048067,
+        "rte30_xy": 1.0925883120135398
+      },
+      "exit_histogram": [
+        1635,
+        2414,
+        4495,
+        3302,
+        2461,
+        1399,
+        787,
+        19612
+      ],
+      "linear_conv_flops_per_window": 3873833.833541061,
+      "fixed_duration": {
+        "segment_seconds": 60.0,
+        "segments": 515,
+        "eligible_records": 213,
+        "excluded_short_records": 0,
+        "covered_windows": 30900,
+        "excluded_tail_windows": 5205,
+        "coverage_fraction": 0.8558371416701288,
+        "aggregation": "arithmetic mean of segment RMSEs within each record, then equal-weight mean over eligible records",
+        "selection": "all complete non-overlapping segments starting at record time zero; incomplete tails excluded; no error-based selection",
+        "alignment": "initial translation at every segment start only; no rotation or scale fitting",
+        "rte_protocol": "30-second endpoint differences within each segment; pairs crossing segment boundaries excluded",
+        "macro": {
+          "ate_xyz": 1.1082566195914894,
+          "ate_xy": 1.0941610958749788,
+          "rte30_xyz": 1.0581287054223438,
+          "rte30_xy": 1.0464654734845058,
+          "final_error_xyz": 1.7169666094912068
+        }
+      }
+    }
+  },
+  "checks": {
+    "core_unit_tests": 7,
+    "all_passed": true,
+    "original_full_record_metrics_and_routing_unchanged": true
+  }
+}

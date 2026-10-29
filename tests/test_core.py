@@ -6,7 +6,7 @@ import torch
 from meio.common import read_config, write_json
 from meio.data import prepare, Windows, rotate, window_count, augment
 from meio.model import MEIO, losses, exit_weights
-from meio.evaluate import trajectory_metrics
+from meio.evaluate import trajectory_metrics, fixed_duration_metrics
 
 def tiny_config(root, device='cpu'):
     cfg=read_config(Path(__file__).resolve().parents[1]/'configs/yt.json')
@@ -88,5 +88,26 @@ class CoreTests(unittest.TestCase):
         x,y=augment(torch.randn(4,6,20),torch.randn(4,3))
         self.assertEqual(tuple(x.shape),(4,6,20)); self.assertEqual(tuple(y.shape),(4,3))
         self.assertTrue(torch.isfinite(x).all())
+
+    def test_fixed_duration_keeps_all_segments_and_counts_tail(self):
+        target=np.zeros((125,3)); pred=np.zeros_like(target)
+        pred[:60,0]=1.; pred[60:120,0]=2.; pred[120:,0]=100.
+        result=fixed_duration_metrics(pred,target,1.,60.)
+        self.assertEqual(result['segments'],2)
+        self.assertEqual(result['covered_windows'],120)
+        self.assertEqual(result['excluded_tail_windows'],5)
+        self.assertEqual([r['start_seconds'] for r in result['per_segment']],[0.,60.])
+        unit_ate=float(np.sqrt(np.mean(np.arange(61.)**2)))
+        self.assertAlmostEqual(result['macro']['ate_xyz'],1.5*unit_ate)
+        self.assertAlmostEqual(result['macro']['rte30_xyz'],45.)
+        self.assertAlmostEqual(result['macro']['final_error_xyz'],90.)
+        # Full-record metrics still include the high-error tail.
+        self.assertGreater(trajectory_metrics(pred,target,1.)['ate_xyz'],result['macro']['ate_xyz'])
+        short=fixed_duration_metrics(pred[:59],target[:59],1.,60.)
+        self.assertEqual(short['segments'],0); self.assertIsNone(short['macro']['ate_xyz'])
+        exact=fixed_duration_metrics(target[:60],target[:60],1.,60.)
+        self.assertEqual(exact['segments'],1); self.assertEqual(exact['macro']['rte30_xyz'],0.)
+        with self.assertRaises(ValueError): fixed_duration_metrics(pred,target,1.,60.5)
+        with self.assertRaises(ValueError): fixed_duration_metrics(pred,target,1.,20.)
 
 if __name__=='__main__': unittest.main()
