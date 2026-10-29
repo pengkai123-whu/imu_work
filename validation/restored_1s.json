@@ -1,11 +1,16 @@
 {
+  "restored_from": "5192f95",
+  "historical_half_second_version": "6f7f133",
+  "retrained": false,
+  "recalibrated": false,
   "device": "cuda",
-  "full_test_records": 213,
+  "tests_passed": 8,
+  "records": 213,
   "windows": 36105,
-  "existing_numeric_metrics_unchanged": true,
-  "half_second_update_cli_passed": true,
-  "primary_metrics_independent_of_supplementary_segment_duration": true,
-  "training_model_and_configs_unchanged": true,
+  "checkpoint_sha256": "3c8dabe65cde535658954e8a19f8409eb509d0a755a5cdc619a6044a7a44e6d3",
+  "policy_sha256": "4da0b933c6070f23ae22ef06fe97857f4e91846d93f4f63cc108b9dae8da42fd",
+  "numeric_results_unchanged": true,
+  "half_second_experiment_files_preserved": true,
   "summary": {
     "final": {
       "protocol_version": 2,
@@ -19,9 +24,9 @@
       "rte30_xy": 1.0458562730149668,
       "displacement_rmse_xyz": 0.0974513188383057,
       "displacement_rmse_xy": 0.09623927161659815,
-      "ate_protocol": "entire reconstructed trajectory of every record, including tails; initial translation only; no intermediate reset, rotation or scale fitting; per-record RMSE then equal-weight record mean",
+      "ate_protocol": "entire reconstructed trajectory including tails; initial translation only; no intermediate reset, rotation or scale fitting; per-record RMSE then equal-weight record mean",
       "rte_protocol": "all legal 30-second endpoint pairs within full records; record-balanced RMSE mean; includes record tails",
-      "displacement_protocol": "pooled vector RMSE of full-horizon predictions on every update; overlapping outputs included; includes record tails"
+      "displacement_protocol": "pooled vector RMSE across all predicted displacement intervals; includes record tails"
     },
     "early": {
       "protocol_version": 2,
@@ -35,10 +40,9 @@
       "rte30_xy": 1.0925883120135398,
       "displacement_rmse_xyz": 0.09966543069339759,
       "displacement_rmse_xy": 0.09847919879734765,
-      "ate_protocol": "entire reconstructed trajectory of every record, including tails; initial translation only; no intermediate reset, rotation or scale fitting; per-record RMSE then equal-weight record mean",
+      "ate_protocol": "entire reconstructed trajectory including tails; initial translation only; no intermediate reset, rotation or scale fitting; per-record RMSE then equal-weight record mean",
       "rte_protocol": "all legal 30-second endpoint pairs within full records; record-balanced RMSE mean; includes record tails",
-      "displacement_protocol": "pooled vector RMSE of full-horizon predictions on every update; overlapping outputs included; includes record tails"
+      "displacement_protocol": "pooled vector RMSE across all predicted displacement intervals; includes record tails"
     }
-  },
-  "note": "Full-data results belong to the legacy trained checkpoint. New half-second update model checked using a small-data execution checkpoint only."
+  }
 }

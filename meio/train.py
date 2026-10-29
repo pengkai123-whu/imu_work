@@ -76,12 +76,8 @@ def fit(cfg, resume=None):
             raise ValueError('checkpoint/cache/model mismatch')
         for key in ['window','horizon','fs','train_stride','valid_stride']:
             if saved['config']['data'][key]!=d[key]: raise ValueError('resume data mismatch: '+key)
-        if saved['config']['data'].get('eval_stride',d['horizon']) != d.get('eval_stride',d['horizon']):
-            raise ValueError('resume data mismatch: eval_stride')
         for key in ['seed','lr','mse_epochs','transition_epochs','gamma','augment']:
             if saved['config']['train'][key]!=t[key]: raise ValueError('resume training mismatch: '+key)
-        if saved['config']['train'].get('supervision','all')!=t.get('supervision','all'):
-            raise ValueError('resume supervision mismatch')
         model.load_state_dict(saved['model']); optimizer.load_state_dict(saved['optimizer'])
         if saved.get('scaler'): scaler.load_state_dict(saved['scaler'])
         start=saved['epoch']+1; best=saved['best_rmse']
@@ -93,8 +89,6 @@ def fit(cfg, resume=None):
     data=Windows(d['cache'],'train',d['window'],d['horizon'],d['train_stride'])
     valid=Windows(d['cache'],'valid',d['window'],d['horizon'],d['valid_stride'])
     weights=exit_weights(model.depth,t['gamma'],device)
-    if t.get('supervision','all')=='final':
-        weights.zero_(); weights[-1]=1.
     mean=torch.tensor(meta['mean'],device=device,dtype=torch.float32)[None,:,None]
     std=torch.tensor(meta['std'],device=device,dtype=torch.float32)[None,:,None]
     total=t['mse_epochs']+t['transition_epochs']+t['nll_epochs']

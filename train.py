@@ -6,7 +6,7 @@ from meio.common import ROOT, read_config, device_for
 
 def main():
     parser=argparse.ArgumentParser(description='Prepare local H5 cache and train on the local GPU.')
-    parser.add_argument('--config',default=str(ROOT/'configs/yt_1s_update05s.json'))
+    parser.add_argument('--config',default=str(ROOT/'configs/yt.json'))
     parser.add_argument('--resume',nargs='?',const='auto',help='Resume a checkpoint; no path means out/last.pt')
     parser.add_argument('--h5',help='Override local H5 path')
     parser.add_argument('--out',help='Override run directory')

@@ -1,5 +1,7 @@
 # 本地检查记录，2026-10-29
 
+当前恢复 5192f95 的旧结构、训练入口和配置，使用已完成训练的 runs/yt/best.pt，不重新训练。测试保留 protocol_version=2 的完整 ATE、RTE30、Disp1s RMSE 主指标，分段 ATE 为补充。默认复用 runs/yt/policy.json。恢复后的 CUDA 全量复测记录见 validation/restored_1s.json；历史阶段记录如下，不应将其中旧的分段主表当作当前主表。0.5 秒版代码在 Git 历史，未删除其本地实验文件。
+
 检查在现有 spk 环境的真实 CUDA GPU 上运行：D:/anaconda/envs/spk/python.exe，PyTorch 2.9.0.dev20250813+cu129，NVIDIA GeForce RTX 5060 Laptop GPU，约 7.96 GiB 显存。机器可读记录见 [validation/evidence.json](validation/evidence.json)。
 
 | 检查 | 实际结果与范围 |
@@ -27,22 +29,10 @@ python tools/full_data_check.py
 
 最后一个脚本固定写入 runs/full_data_check，已有 last.pt 时会拒绝覆盖；重测应先改输出目录。完整实验使用 configs/yt.json，不能把检查脚本的 limit_batches 带入正式结果。
 
-这些早期检查只证明执行路径，不证明网络收敛。后续已有 runs/yt 的 legacy 50 轮训练；新版 paper_fig3 和当前半秒更新配置尚未完成全量收敛训练。短训练 RMSE/ATE 不能作为论文结果。大 batch 合成吞吐不含加载和优化器开销；OOM 回退代码经过审查，没有人为耗尽显存实测。
-
-## 当前 1 秒输入、1 秒位移、0.5 秒更新版本
-
-12 项核心单测全部通过；新增图 3 共享 head、残差位置、patch 嵌入等价性、所有出口梯度、非零 log sigma 的完整 NLL 加权及重叠积分检查。恒速合成轨迹不会重复累加路程；加速轨迹真值用实际半秒端点差，能够检测窗口平均速度近似的误差。
-
-validation/baseline_cadence_execution.json 记录真实 H5、CUDA、完整 8x128 paper_fig3 的两种更新配置。每个 split 2 条记录、每条 14000 点，4 轮每轮 3 个 batch，并恢复到第 5 轮；MSE、过渡、NLL、valid 校准、train 原始标准差选阈值、final/dynamic 评估均通过，AMP 未跳过更新。默认半秒更新测试产生 276 个 1 秒预测、274 个半秒轨迹区间和 4 个完整 30 秒片段。该结果不是精度实验。
-
-旧 legacy 权重另在全部 213 条记录上复测，位移 RMSE、完整 ATE/RTE、出口分布与三个主指标保持原值。旧模型诊断见 validation/baseline_diagnostics.json，不能混作新结构证据；一次 batch=1 的 GPU 诊断中动态路由慢于最终出口，不宣称实际时延收益。
-
-test.py 新默认配置的 CLI、final_only 仅最终出口 CLI、train 原始标准差参考 checkpoint 阈值选择 CLI 也通过；汇总见 validation/cadence_cli_checks.json。协议说明文字有更新，旧模型兼容检查针对数值字段。
+上述早期执行检查不证明网络收敛。后续 runs/yt 已有完整 50 轮训练权重，本次直接复用，不重新训练；短训练检查的 RMSE/ATE 仍不能当作正式精度。大 batch 的合成吞吐不包含加载和优化器开销，不作为训练速度结论。CUDA OOM 回退代码已审查，但没有人为制造显存耗尽来实测该分支。
 
 本地原始日志、配置、checkpoint 和 JSON 报告保存在 runs/，不进入 Git。全量缓存保存在 cache/yt，可供本地后续分析。当前启动方式为 python train.py / python test.py。
 
 后续正式训练模型的固定 60 秒补充测试使用已冻结的 runs/yt/policy.json，未重新训练、校准或按测试误差挑选窗口。515 个完整片段覆盖全部 213 条记录，覆盖 30,900/36,105 个预测区间，5,205 个尾段区间只从补充指标排除。动态早退的完整 XYZ ATE / RTE30 为 1.936220 / 1.103933 m；60 秒片段为 1.108257 / 1.058129 m。这是评估范围变化，不是模型精度提升，也不能直接与论文数值比较。机器可读结果见 validation/fixed_duration_evaluation.json，完整分段明细位于 runs/yt/evaluation_60s/。
 
-历史主表曾按用户约定采用 30 秒片段 ATE、完整记录内全起点 30 秒 RTE、单次 1 秒位移 RMSE。新增第 8 项已知偏置测试，8 项全部通过；相同模型与冻结策略在 CUDA 上复测全部测试记录。30 秒 ATE 共 1108 段、213 条记录，覆盖 33240/36105 个区间（92.06%），余下 2865 个区间只从片段 ATE 排除。动态早退三个 XYZ 指标分别为 0.670088 / 1.103933 / 0.099665 m。完整记录指标、出口分布、位移 RMSE 均与之前逐值一致。见 validation/primary_metrics_30s.json 与 runs/yt/evaluation_30s/summary.json。
-
-后续仅调整测试主指标：完整轨迹 ATE、RTE30、Disp1s RMSE，protocol_version=2。不修改训练或积分器，分段 ATE 留作补充。旧正式模型在 CUDA 上重测全部 213 条记录，新版 0.5 秒更新的小切片 checkpoint 同样完成 CLI 检查；结果与数值一致性记录见 validation/full_ate_primary.json。新版小切片的数值不作收敛精度。
+当前主表按用户约定改为 30 秒片段 ATE、完整记录内全起点 30 秒 RTE、单次 1 秒位移 RMSE。新增第 8 项已知偏置测试，8 项全部通过；相同模型与冻结策略在 CUDA 上复测全部测试记录。30 秒 ATE 共 1108 段、213 条记录，覆盖 33240/36105 个区间（92.06%），余下 2865 个区间只从片段 ATE 排除。动态早退三个 XYZ 指标分别为 0.670088 / 1.103933 / 0.099665 m。完整记录指标、出口分布、位移 RMSE 均与之前逐值一致。见 validation/primary_metrics_30s.json 与 runs/yt/evaluation_30s/summary.json。
