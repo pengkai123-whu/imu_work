@@ -77,19 +77,18 @@
     ],
     "note": "Synthetic probe throughput excludes data loading; real-data updates check execution, not model accuracy."
   },
-  "notebook": {
+  "local_cli": {
     "passed": true,
-    "cell_count": 14,
-    "schema": "nbformat validated",
-    "executed_cells": [
-      1,
-      3,
-      4,
-      5,
-      7
+    "device": "cuda",
+    "resume_epoch": 5,
+    "records": 2,
+    "test_windows": 78,
+    "entrypoints": [
+      "train.py",
+      "train.py --resume",
+      "test.py"
     ],
-    "smoke_name": "notebook_smoke_20261029_135826",
-    "note": "local spk CUDA execution; Colab Drive/download/full training not executed"
+    "note": "real H5 subset; execution check only, not converged accuracy"
   },
   "full_cache": {
     "records": {
@@ -175,7 +174,6 @@
   "llio_model_sha256": "f6391e0455bf959b1c51d730c2043707b7487d5c230d1cc4dc753116a9bbabb5",
   "limitations": [
     "Execution checks only; no complete converged training",
-    "Colab hosted runtime and Drive synchronization not executed",
     "CUDA OOM retry code reviewed; no deliberately induced OOM"
   ]
 }

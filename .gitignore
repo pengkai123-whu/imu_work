@@ -7,4 +7,5 @@ runs/
 *.pt
 *.npy
 *.npz
-configs/active.json
+*.ipynb
+.ipynb_checkpoints/

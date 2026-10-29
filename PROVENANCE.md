@@ -27,7 +27,7 @@ meio/train.py 和 meio/model.py 继承官方模块的多出口训练、MSE 向�
 - 文件 YT_server_200Hz.h5，15,138,253,808 字节；已核对本地 MD5 为 0f4559f4ef0542a99dc2bf5a45b958fe，与官方记录一致。
 - 公开 H5 为 1479/422/213 条 train/valid/test 记录，合计 95.16906 h，论文写 108.69 h；本项目使用公开文件，不补造缺失记录。
 
-源数据不随代码包分发，数据许可由 Zenodo 记录约束。根目录衍生代码按 GPLv3 分发，保留两份上游源码和许可证。Git 的 origin 指向官方仓库只用于追溯，未向作者仓库推送修改。
+源数据不随代码分发，数据许可由 Zenodo 记录约束。根目录衍生代码按 GPLv3 分发，保留两份上游源码和许可证。Git 的 upstream 指向作者官方仓库用于追溯，origin 指向用户指定的 https://github.com/pengkai123-whu/imu_work ，未向作者仓库推送修改。
 
 ## 明确采用的适配协议
 

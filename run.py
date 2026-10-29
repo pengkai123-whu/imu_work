@@ -1,12 +1,11 @@
-"""CLI used by the notebook; all paths in JSON configs resolve relative to that JSON."""
+"""Individual local prepare/train/calibrate/evaluate commands."""
 import argparse
-from pathlib import Path
-from meio.common import read_config
+from meio.common import ROOT, read_config
 
 def main():
     p=argparse.ArgumentParser(); sub=p.add_subparsers(dest='command',required=True)
     for name in ['prepare','train']:
-        s=sub.add_parser(name); s.add_argument('--config',default='configs/yt.json')
+        s=sub.add_parser(name); s.add_argument('--config',default=str(ROOT/'configs/yt.json'))
         if name=='train': s.add_argument('--resume')
     for name in ['calibrate','evaluate']:
         s=sub.add_parser(name); s.add_argument('--checkpoint',required=True); s.add_argument('--cache',required=True)
