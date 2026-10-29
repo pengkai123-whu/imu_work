@@ -28,4 +28,4 @@ python tools/full_data_check.py
 
 这些结果证明当前环境下关键路径已经实际执行，不证明网络已收敛。没有完成默认 50 轮全量训练，短训练得到的 RMSE/ATE 不能当作论文复现结果；没有连接你的 Colab 账号，所以未实际执行云端 Drive 授权、下载、同步及 16GB 云 GPU 训练。大 batch 的合成吞吐不包含加载和优化器开销，不作为训练速度结论。CUDA OOM 回退代码已审查，但没有人为制造显存耗尽来实测该分支。
 
-本地原始日志、配置、checkpoint 和 JSON 报告保存在 runs/，不进入 Git 或 Colab 代码包。全量缓存保存在 cache/yt，可供本地后续分析。代码包由 tools/package_colab.py 从干净的已提交 Git 树导出并检查 ZIP 完整性。
+本地原始日志、配置、checkpoint 和 JSON 报告保存在 runs/，不进入 Git 或 Colab 代码包。全量缓存保存在 cache/yt，可供本地后续分析。代码包由 tools/package_colab.py 从已提交 Git 树导出并检查 ZIP 完整性；允许工作笔记本仅有运行输出和元数据变化，此时保留交互输出、导出已提交的无输出源码。

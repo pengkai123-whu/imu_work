@@ -1,12 +1,21 @@
 """Export the committed, clean Git tree as a small Colab upload archive."""
 import hashlib
+import json
 import subprocess
 import zipfile
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 status=subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True)
-if status.strip(): raise RuntimeError('Commit code and documentation before packaging: '+status)
+if status.strip():
+    # Preserve interactive outputs; export only committed source.
+    if status.strip() != 'M MEIO_YT_Colab.ipynb':
+        raise RuntimeError('Commit code and documentation before packaging: '+status)
+    committed=json.loads(subprocess.check_output(['git','show','HEAD:MEIO_YT_Colab.ipynb'],cwd=ROOT))
+    working=json.loads((ROOT/'MEIO_YT_Colab.ipynb').read_text(encoding='utf-8'))
+    def sources(nb): return [(c['cell_type'],''.join(c['source'])) for c in nb['cells']]
+    if sources(committed)!=sources(working): raise RuntimeError('Notebook source edits must be committed')
+    print('Preserving notebook execution outputs; packaging committed source.')
 target=ROOT.parent/'meio_yt_colab.zip'
 subprocess.run(['git','archive','--format=zip','--prefix=meio_yt/','--output='+str(target),'HEAD'],cwd=ROOT,check=True)
 with zipfile.ZipFile(target) as archive:
