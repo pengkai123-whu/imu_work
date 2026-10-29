@@ -1,0 +1,44 @@
+{
+  "experiment": "yt_paper_1s controlled ablation: final_only",
+  "data": {
+    "h5": "../../YT_server_200Hz.h5",
+    "cache": "../cache/yt",
+    "fs": 200,
+    "window": 200,
+    "horizon": 200,
+    "train_stride": 10,
+    "valid_stride": 200,
+    "max_records": null,
+    "max_samples": null
+  },
+  "model": {
+    "architecture": "paper_fig3",
+    "window": 200,
+    "patch": 50,
+    "dim": 128,
+    "depth": 8,
+    "expansion": 2,
+    "dropout": 0.5,
+    "min_sigma": 0.01,
+    "max_sigma": 10.0
+  },
+  "train": {
+    "out": "../runs/yt_paper_1s_final_only",
+    "seed": 6,
+    "batch": 2048,
+    "auto_batch": true,
+    "max_batch": 8192,
+    "workers": 0,
+    "lr": 0.00025,
+    "mse_epochs": 20,
+    "transition_epochs": 5,
+    "nll_epochs": 25,
+    "gamma": 0.5,
+    "supervision": "final",
+    "clip_grad": 1.0,
+    "augment": true,
+    "device": "cuda",
+    "cpu_threads": 4,
+    "log_every": 20
+  }
+}

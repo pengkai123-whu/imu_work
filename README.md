@@ -1,86 +1,80 @@
 # MEIO-YT：本地 GPU 训练与测试
 
-针对本地 YT_server_200Hz.h5 的多出口惯性里程计适配版本。训练和测试入口均为 Python 脚本，直接在终端或 VS Code 运行。代码基于 MEIO-Net 官方公开训练模块及其致谢的 LLIO 残差模块补齐，来源与论文差异见 [PROVENANCE.md](PROVENANCE.md)。
+基于 MEIO-Net 公开训练模块和 LLIO 参考代码补齐的 YT 适配实现，全部入口为 Python。官方未发布完整主干及数据/轨迹代码，因此本项目属于框架重建与适配，不能宣称严格复现论文数字。来源见 [PROVENANCE.md](PROVENANCE.md)，核心核对和局限见 [BASELINE_AUDIT.md](BASELINE_AUDIT.md)。
 
-## 开始训练
+## 当前默认版本
 
-在终端执行：
+配置 configs/yt_1s_update05s.json：200 Hz，输入过去 1 秒六轴 IMU（200 点），预测同一秒的世界系三维位移及不确定度，每隔 0.5 秒更新（100 点步长，2 Hz）。例如 t=1.0 输入 [0,1.0)，预测 p(1.0)-p(0)；t=1.5 输入 [0.5,1.5)，预测 p(1.5)-p(0.5)。并非预测未来一秒，也并非半秒输入。
+
+4 个 patch、8 层、128 维，每层有位移和不确定度出口；新版 paper_fig3 使用图示的共享隐藏层 head，并调整残差支路 Affine 的位置。旧 legacy 结构和 runs/yt 权重保持兼容，但不能用于新版结构续训或充当新版成绩。
+
+## 训练与测试
 
 ~~~powershell
 conda activate spk
 cd C:\Users\19510\Desktop\work_space\imu_work\meio_yt
 python train.py
-~~~
-
-默认使用本机 CUDA GPU，从上一级目录读取 YT_server_200Hz.h5，自动准备或复用 cache/yt，然后开始训练。已经生成的完整缓存可直接复用。无需 Jupyter 或 Lightning，也不需要上传数据。当前 spk 已有可运行的 CUDA PyTorch；不要随意替换其版本。缺少依赖时参考 requirements.txt。
-
-参数统一在 configs/yt.json：默认 200 Hz、200 点输入、1 秒 XYZ 位移、8 层 128 维、20 轮 MSE + 5 轮过渡 + 25 轮 NLL。完整训练没有数据裁剪或批次限制，输出目录为 runs/yt。每 20 个 batch 打印进度，每轮打印验证结果。
-
-batch 从 2048 起自动探测，最大 8192，按合成前向/反向吞吐及低于 80% 显存条件选取；真实训练遇到 CUDA OOM 时恢复本轮开始状态、减半 batch 重试。探测吞吐不含加载和优化器开销，大 batch 可能影响优化效果，学习率保持 2.5e-4。固定 batch 可运行：
-
-~~~powershell
-python train.py --batch 2048 --no-auto-batch
-~~~
-
-中断后从最近一个完整 epoch 恢复：
-
-~~~powershell
-python train.py --resume
-~~~
-
-另开实验或指定数据：
-
-~~~powershell
-python train.py --out runs/experiment2
-python train.py --h5 "C:\path\YT_server_200Hz.h5"
-~~~
-
-更换数据内容时同时在配置中指定新的 cache 目录。配置中的相对路径相对于 JSON 文件所在目录解析，命令行覆盖的路径相对于当前终端目录解析。已有 last.pt 时不带 --resume 会拒绝覆盖。
-
-## 测试与结果
-
-训练完成后执行：
-
-~~~powershell
 python test.py
 ~~~
 
-它读取 runs/yt/best.pt，先在验证集校准不确定度并选择早退阈值，然后分别在全部测试记录上评估最终出口和动态早退。测试集不参与选阈值。结果保存到 checkpoint 同目录的 policy.json、final_test.json、early_test.json、summary.json。
+默认训练读取上一级 YT_server_200Hz.h5，复用 cache/yt，在本地 CUDA 上训练，输出 runs/yt_1s_update05s。无需上传数据或安装 Jupyter/Lightning。完整配置没有记录、采样或 batch 数量裁剪。训练每 10 点采一个窗口以增加训练样本，验证/阈值选择/测试每 100 点采一个窗口。窗口密度和在线更新间隔是不同设置。
 
-主输出为三个指标（米）：30 秒片段 ATE、30 秒 RTE、单次 1 秒位移 RMSE。终端主表使用 XYZ 向量误差，JSON 的 primary_metrics 同时保存 XY 结果与协议。ATE 从每条记录零时刻起连续切分，采用全部完整、不重叠的 30 秒片段，每段只重置起点平移，不做旋转或尺度拟合；不足 30 秒的尾段不进入片段 ATE，报告披露覆盖率。先在每条记录内平均片段 ATE，再跨记录等权平均。30 秒 RTE 采用完整记录内所有合法起止对（每秒一个起点），每条记录内计算 RMSE 后跨记录等权平均，不受 ATE 分段影响，也包含尾段中的合法起止对。单次位移 RMSE 在全部 1 秒预测上汇总平方误差后开方。完整记录 ATE 与片段内 RTE 保留在详细 JSON，分别位于 macro / fixed_duration 中，不能与主输出混用。
-
-自定义实验：
+训练为 20 轮 MSE、5 轮过渡、25 轮 NLL；gamma=0.5 的深度权重作用于完整损失。best.pt 仅从纯 NLL 阶段按最终出口验证 RMSE 选择，last.pt 用于恢复，mse_last.pt 保存均值预训练。metrics.jsonl 记录每轮损失、各出口验证误差和耗时。
 
 ~~~powershell
-python test.py --checkpoint runs/experiment2/best.pt
-python test.py --checkpoint runs/experiment2/best.pt --batch 256 --out runs/experiment2/reports
-python test.py --checkpoint runs/yt/best.pt --policy runs/yt/policy.json --out runs/yt/evaluation_30s
+python train.py --resume
+python train.py --batch 2048 --no-auto-batch
+python train.py --out runs/new_experiment
+python test.py --checkpoint runs/new_experiment/best.pt --out runs/new_experiment/reports
 ~~~
 
---max-windows 只限制验证集校准窗口数，不裁剪测试集。默认最多 50000 个验证窗口，允许相对最终出口最多 3% 的验证位移 RMSE 增加；没有符合精度与算量条件的阈值时自动用最终出口。
+自动 batch 默认从 2048 请求值开始探测，最大 8192，按合成前反向吞吐和 80% 显存条件选择；真实训练 OOM 会恢复本轮初始状态、减半 batch 重试。探测不含加载和优化器开销，大 batch 不保证收敛或实际吞吐更好。已有 last.pt 不带 --resume 会拒绝覆盖。相对配置路径按 JSON 目录解析，CLI 路径按终端当前目录解析；更换数据内容要指定新的缓存目录。
 
---policy 可复用与 checkpoint 绑定的已冻结早退策略，避免重新校准；--segment-seconds 默认 30 秒，只改变 ATE 片段时长，RTE 间隔始终是 30 秒。片段时长至少 30 秒且为预测间隔的整数倍，应在比较模型前统一确定，不根据测试误差挑选最有利的时长、起点或片段。重新评估建议指定独立 --out，以保留旧报告。30 秒片段 ATE 是当前任务约定，不是已确认的论文原协议，也不表示连续运行的完整轨迹误差。
+## 重叠预测、轨迹与指标
 
-last.pt 用于续训，best.pt 仅从达到纯 NLL 阶段的模型中按最终出口验证 RMSE 选择，mse_last.pt 保留均值预训练模型。metrics.jsonl 记录损失、各出口验证 RMSE、batch、AMP 跳过步数和耗时，batch_probe.json 保存显存与吞吐探测。每轮结束保存 checkpoint，未完成一轮的进度不保存。
+相邻预测覆盖同一秒中的部分时间，不能整段相加。采用窗口平均速度近似：每次用 1 秒预测位移除以 1 秒，再乘 0.5 秒推进轨迹。第一条输出在 t=1 秒初始化轨迹原点；之后从 t=1.5 秒开始推进。真实轨迹增量使用实际 p(t)-p(t-0.5s)。加速/转弯时，平均速度近似本身存在误差；报告 integration_oracle 用精确 1 秒真值输出通过同一积分器计算诊断值，不当作网络精度或误差下界。
 
-## 本地检查
+终端主表固定三个 XYZ 指标（米）：
+
+- **ATE30s**：从轨迹原点 t=1 秒起切分全部完整、非重叠的 30 秒片段，每段只重置平移起点，不拟合旋转或尺度。先每条记录内平均，再跨记录等权平均。尾段从这个指标排除，报告覆盖率。
+- **RTE30s**：重建轨迹上全部合法 30 秒端点对，起点每 0.5 秒一个；每条记录内 RMSE 后跨记录等权平均，包含尾部合法起止对。
+- **Disp1s RMSE**：每隔 0.5 秒输出的完整 1 秒位移向量误差，汇总全部窗口平方误差后开方。不是半秒位移误差。
+
+完整记录 ATE、XY 指标、逐记录数据、各出口分布和 Linear/Conv FLOPs 都保留在 JSON。FLOPs 同时报告每次输出和每秒值，不把减少 FLOPs 直接解释为 GPU 加速。片段协议是本任务约定，不能直接与论文的 20 Hz 轨迹结果比较；更换版本后要在相同协议上重测所有对比方法。
+
+## 早退策略与消融
+
+python test.py 默认先在 valid 的两半窗口上分别校准标准差、搜索阈值，然后冻结策略，分别评估 final 和 early。允许位移 RMSE 相对最终出口增加最多 3%，满足条件的阈值中选择主要矩阵算量最低者，无合适收益则回退 final。max-windows 默认 50000，只限制阈值选择，不裁剪测试。
 
 ~~~powershell
+python test.py --policy runs/yt_1s_update05s/policy.json --out runs/yt_1s_update05s/retest
+python tools/make_ablations.py
+python train.py --config configs/yt_1s_update05s_final_only.json
+python train.py --config configs/yt_1s_update05s_equal_weights.json
+~~~
+
+final_only 只监督最终出口，测试只跑 final，不使用未训练中间 head；equal_weights 使用 gamma=0。它们与默认模型拥有相同数据和优化设置，各自独立保存。final_only 保留未使用中间 head 参数，论文统计参数量时需说明。正式报告建议至少三个随机种子，不能用执行检查替代收敛消融。
+
+接近论文 III-C 的训练集原始不确定度搜索与参考精度匹配，可在训练好默认和 final_only 后运行：
+
+~~~powershell
+python test.py --selection-split train --raw-sigma --tolerance 0 --reference-checkpoint runs/yt_1s_update05s_final_only/best.pt --out runs/yt_1s_update05s/train_raw_policy
+~~~
+
+参考模型在完全相同的选阈值窗口上测量；默认最多均匀抽取 50000 个窗口。标量不确定度采用各轴标准差 L2 范数，这也是未公开细节下的本地选择，不能声称数值阈值与作者完全相同。测试集不参与校准、阈值或参考精度选择。
+
+## 旧版本与本地检查
+
+configs/yt_paper_1s.json 保留 1 秒非重叠参考配置（窗口/主干参数参考论文，轨迹 1Hz 并非完整论文协议）。configs/yt.json 与 runs/yt/best.pt 是历史 legacy 实验，需显式指定：
+
+~~~powershell
+python test.py --checkpoint runs/yt/best.pt --policy runs/yt/policy.json --out runs/yt/new_report
 python -m unittest discover -s tests -v
-python tools/smoke_check.py --device cuda --out runs/my_gpu_smoke
+python tools/check_baseline.py
 ~~~
 
-smoke 是真实 H5 小切片的训练、恢复、校准和评估检查，不能当作精度实验。输出目录需使用新名称。已有本地检查见 [VALIDATION.md](VALIDATION.md)。
+check_baseline 使用真实 H5 小切片在 CUDA 上运行训练、恢复、两种选阈值方式及重叠评估；已有输出会拒绝覆盖，重测先改脚本 out。详情见 [VALIDATION.md](VALIDATION.md)。新默认版本已通过执行检查，尚未完成全量收敛训练。数据、缓存、权重、运行日志不进 Git，原始 H5 不修改。
 
-run.py 保留分步命令 prepare / train / calibrate / evaluate，便于独立执行其中一项；用 python run.py --help 查看。
+公开数据 1479/422/213 条 train/valid/test 记录，约 95.17h，论文写 108.69h；不是受试者互斥划分。设备系 IMU 通过发布 wxyz 姿态旋转到世界系，保留重力；仅 train 计算导航系归一化，忽略 H5 的 para。姿态是额外依赖，不应声称纯六轴无外部姿态输入。
 
-## 数据和协议
-
-- H5 是作者官方公开版本，1479/422/213 条 train/valid/test 记录，共约 95.17 小时；论文写 108.69 小时，不能据公开文件保证复现论文数字。原始划分不是受试者互斥划分。
-- wxyz 四元数从设备系旋转到世界系，IMU 保留重力，三维位移为世界系标签。仅使用 train 重算导航系 mean/std，忽略发布 H5 的 para，统计量和缓存身份绑定 checkpoint。原 H5 不修改。
-- 多出口高斯 NLL 权重乘完整损失；逐样本动态路由会移除已退出样本，并计入所有访问 head 的算量。
-- 轨迹使用不重叠 1 秒位移累加，1 Hz 端点，只有初始平移对齐。报告位移 RMSE、XY/XYZ ATE、30 秒 RTE、出口分布及主要 Linear/Conv FLOPs。短于 30 秒的记录 RTE 为 null。该协议不能直接与论文的 20 Hz 轨迹数字比较。
-
-## Git 与源码
-
-train.py / test.py 是本地入口；meio/ 是模型、数据和训练实现；upstream/ 保存原始来源与许可证；tests/ 和 tools/ 为检查工具。数据、缓存、运行日志、模型权重、Python 缓存不进入 Git。衍生代码 GPLv3，数据许可见官方 Zenodo。保留官方历史，在独立分支开发，不向作者仓库推送修改。
+代码保留官方历史和 GPLv3 许可；origin 为用户仓库，upstream 为作者仓库，不向 upstream 推送。

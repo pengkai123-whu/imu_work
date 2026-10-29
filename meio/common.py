@@ -20,12 +20,18 @@ def read_config(path):
         raise ValueError("window must be divisible by patch; positive dim/depth required")
     if d["fs"] <= 0 or min(d["train_stride"], d["valid_stride"]) < 1:
         raise ValueError("fs and strides must be positive")
+    if not isinstance(d.get('eval_stride',d['horizon']),int) or not 0 < d.get('eval_stride',d['horizon']) <= d['horizon']:
+        raise ValueError('eval_stride must be a positive integer <= horizon')
     if t["mse_epochs"] < 1 or t["nll_epochs"] < 1 or t["transition_epochs"] < 0:
         raise ValueError("require positive MSE/NLL phases and nonnegative transition")
     if t["batch"] < 1 or t["workers"] < 0 or t["lr"] <= 0 or t["gamma"] < 0:
         raise ValueError("invalid optimizer/loader configuration")
     if not 0 < m["min_sigma"] < m["max_sigma"] or not 0 <= m["dropout"] < 1:
         raise ValueError("invalid sigma limits or dropout")
+    if m.get('architecture','legacy') not in ['legacy','paper_fig3']:
+        raise ValueError('unknown architecture')
+    if t.get('supervision','all') not in ['all','final']:
+        raise ValueError('supervision must be all or final')
     for key in ["max_records", "max_samples"]:
         if d.get(key) is not None and d[key] < 1:
             raise ValueError(key + " must be positive or null")

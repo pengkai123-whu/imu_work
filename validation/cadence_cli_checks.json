@@ -1,0 +1,9 @@
+{
+  "final_only_cli": true,
+  "raw_train_reference_checkpoint_cli": true,
+  "legacy_all_213_records_numeric_metrics_unchanged": true,
+  "legacy_test_windows": 36105,
+  "core_tests_passed": 12,
+  "device": "cuda",
+  "note": "New model used small real-data execution checks, not converged performance. Protocol descriptions updated; compatibility compares numeric metrics."
+}

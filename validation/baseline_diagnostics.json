@@ -1,0 +1,115 @@
+{
+  "checkpoint_sha256": "3c8dabe65cde535658954e8a19f8409eb509d0a755a5cdc619a6044a7a44e6d3",
+  "split": "valid",
+  "windows": 5000,
+  "architecture": "legacy",
+  "input_seconds": 1.0,
+  "output_horizon_seconds": 1.0,
+  "per_exit": [
+    {
+      "exit": 1,
+      "vector_rmse": 0.13457301259040833,
+      "sigma_error_pearson": 0.47152511748863046,
+      "per_axis_fraction_within_3sigma": [
+        0.9928,
+        0.9892,
+        0.9898
+      ]
+    },
+    {
+      "exit": 2,
+      "vector_rmse": 0.1136959046125412,
+      "sigma_error_pearson": 0.5369556282424437,
+      "per_axis_fraction_within_3sigma": [
+        0.9934,
+        0.9908,
+        0.9892
+      ]
+    },
+    {
+      "exit": 3,
+      "vector_rmse": 0.10511650890111923,
+      "sigma_error_pearson": 0.5409354795851133,
+      "per_axis_fraction_within_3sigma": [
+        0.9916,
+        0.9912,
+        0.989
+      ]
+    },
+    {
+      "exit": 4,
+      "vector_rmse": 0.10014355927705765,
+      "sigma_error_pearson": 0.5411207005275291,
+      "per_axis_fraction_within_3sigma": [
+        0.9918,
+        0.9914,
+        0.9898
+      ]
+    },
+    {
+      "exit": 5,
+      "vector_rmse": 0.09735690802335739,
+      "sigma_error_pearson": 0.53645333638841,
+      "per_axis_fraction_within_3sigma": [
+        0.9918,
+        0.9904,
+        0.9906
+      ]
+    },
+    {
+      "exit": 6,
+      "vector_rmse": 0.0953245535492897,
+      "sigma_error_pearson": 0.5311939886693604,
+      "per_axis_fraction_within_3sigma": [
+        0.9924,
+        0.9912,
+        0.9904
+      ]
+    },
+    {
+      "exit": 7,
+      "vector_rmse": 0.09425029903650284,
+      "sigma_error_pearson": 0.5304286046569975,
+      "per_axis_fraction_within_3sigma": [
+        0.992,
+        0.9906,
+        0.99
+      ]
+    },
+    {
+      "exit": 8,
+      "vector_rmse": 0.09398574382066727,
+      "sigma_error_pearson": 0.5269775562128863,
+      "per_axis_fraction_within_3sigma": [
+        0.9912,
+        0.9906,
+        0.9902
+      ]
+    }
+  ],
+  "exit_histogram": [
+    384,
+    414,
+    798,
+    444,
+    265,
+    156,
+    94,
+    2445
+  ],
+  "exit_speed_pearson": 0.4558266257464846,
+  "latency": {
+    "final": {
+      "batch": 1,
+      "median_ms": 2.8595000003406312,
+      "p90_ms": 3.1101000004127854
+    },
+    "dynamic": {
+      "batch": 1,
+      "median_ms": 14.588000000003376,
+      "p90_ms": 16.453390000242507
+    }
+  },
+  "latency_note": "CUDA FP32 batch-1 wall latency including synchronization and Python routing; same first validation window repeated; excludes preprocessing; not a representative runtime benchmark",
+  "interpretation": "Validation samples also participated in policy fitting; descriptive diagnostics only, no independent calibration guarantee. Speed is GT displacement/horizon, not annotated motion type. No semantic motion-awareness claim."
+}

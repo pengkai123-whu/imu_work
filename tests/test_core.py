@@ -5,8 +5,8 @@ import numpy as np
 import torch
 from meio.common import read_config, write_json
 from meio.data import prepare, Windows, rotate, window_count, augment
-from meio.model import MEIO, losses, exit_weights
-from meio.evaluate import trajectory_metrics, fixed_duration_metrics
+from meio.model import MEIO, losses, exit_weights, Residual
+from meio.evaluate import trajectory_metrics, fixed_duration_metrics, trajectory_increments
 
 def tiny_config(root, device='cpu'):
     cfg=read_config(Path(__file__).resolve().parents[1]/'configs/yt.json')
@@ -121,5 +121,73 @@ class CoreTests(unittest.TestCase):
         self.assertAlmostEqual(result['macro']['rte30_xyz'],.6)
         self.assertAlmostEqual(trajectory_metrics(pred,target,1.)['rte30_xyz'],.6)
         self.assertGreater(trajectory_metrics(pred,target,1.)['ate_xyz'],expected)
+
+    def test_paper_figure_shared_head_and_residual(self):
+        cfg=dict(architecture='paper_fig3',window=100,patch=25,dim=16,depth=3,expansion=2,dropout=0.,min_sigma=.01,max_sigma=10.)
+        model=MEIO(cfg).eval(); x=torch.randn(5,6,100)
+        with torch.no_grad(): means,logs=model(x)
+        self.assertEqual(tuple(means.shape),(5,3,3))
+        self.assertEqual(sum(isinstance(m,torch.nn.Linear) for m in model.heads[0].modules()),3)
+        p,_,ex=model.dynamic(x,100.)
+        torch.testing.assert_close(p,means[:,0]); self.assertTrue((ex==0).all())
+        p,_,ex=model.dynamic(x,0.)
+        torch.testing.assert_close(p,means[:,-1]); self.assertTrue((ex==2).all())
+        # Conv patch embedding equals rearrange + Linear in the documented order.
+        patches=x.unfold(2,25,25).permute(0,2,1,3).reshape(5,4,150)
+        explicit=torch.nn.functional.linear(patches,model.embedding.weight[:,:, :].reshape(16,150),model.embedding.bias)
+        torch.testing.assert_close(model.embed(x),explicit)
+        branch=Residual(2,torch.nn.Identity(),'paper_fig3')
+        with torch.no_grad():
+            branch.affine_out.b.fill_(2.); branch.scale.fill_(.1)
+        z=torch.ones(1,1,2)
+        torch.testing.assert_close(branch(z),z+.1*(z+2.))
+
+    def test_paper_and_half_second_update_configs(self):
+        root=Path(__file__).resolve().parents[1]
+        for file,n,patch in [('yt_paper_1s.json',200,50),('yt_1s_update05s.json',200,50)]:
+            cfg=read_config(root/'configs'/file)
+            self.assertEqual(cfg['data']['window'],n); self.assertEqual(cfg['data']['horizon'],n)
+            self.assertEqual(cfg['model']['patch'],patch); self.assertEqual(n//patch,4)
+            self.assertEqual(cfg['model']['architecture'],'paper_fig3')
+        cfg=read_config(root/'configs/yt_1s_update05s.json')
+        self.assertEqual(cfg['data']['eval_stride'],100)
+        self.assertEqual(cfg['data']['valid_stride'],100)
+        delta=np.full((120,3),.01)
+        row=fixed_duration_metrics(delta,delta,.5,30.)
+        self.assertEqual(row['segments'],2); self.assertEqual(row['macro']['ate_xyz'],0.)
+        self.assertEqual(row['macro']['rte30_xyz'],0.)
+
+    def test_overlapping_causal_integration_and_actual_truth(self):
+        # Constant speed: 1s outputs of 2m must advance by 1m per 0.5s.
+        positions=np.zeros((1000,3)); positions[:,0]=np.arange(1000)*.01
+        starts=np.arange(0,701,100); target=positions[starts+200]-positions[starts]
+        pred,truth,oracle=trajectory_increments(target,target,positions,starts,200,100)
+        self.assertEqual(len(pred),7)
+        np.testing.assert_allclose(pred,truth,atol=1e-12)
+        self.assertAlmostEqual(float(pred[:,0].sum()),7.)
+        self.assertEqual(trajectory_metrics(pred,truth,.5)['ate_xyz'],0.)
+        # Acceleration: exact 1s labels are not exact most-recent-half labels.
+        positions[:,0]=(np.arange(1000)/200.)**2
+        target=positions[starts+200]-positions[starts]
+        pred,truth,oracle=trajectory_increments(target,target,positions,starts,200,100)
+        np.testing.assert_allclose(truth,np.diff(positions[starts+200],axis=0))
+        self.assertGreater(trajectory_metrics(oracle,truth,.5)['ate_xyz'],0.)
+        # Editing future positions cannot change an earlier output increment.
+        changed=positions.copy(); changed[601:]+=1000.
+        pp,tt,_=trajectory_increments(target,target,changed,starts,200,100)
+        np.testing.assert_array_equal(pp,pred); np.testing.assert_array_equal(tt[:4],truth[:4])
+        with self.assertRaises(ValueError): trajectory_increments(target,target,positions,starts,200,201)
+
+    def test_all_exit_training_and_whole_nll_weight(self):
+        cfg=dict(architecture='paper_fig3',window=20,patch=5,dim=16,depth=3,expansion=2,dropout=0.,min_sigma=.01,max_sigma=10.)
+        model=MEIO(cfg); p,s=model(torch.randn(4,6,20))
+        losses(p,s,torch.randn(4,3),exit_weights(3,.5,'cpu'),1.).backward()
+        for head in model.heads:
+            self.assertGreater(float(head.mean.weight.grad.norm()),0.)
+            self.assertGreater(float(head.log_sigma.weight.grad.norm()),0.)
+        means=torch.tensor([[[1.,2.,3.],[3.,1.,2.]]]); logs=torch.tensor([[[.2,-.3,.4],[.5,-.1,.1]]])
+        w=torch.tensor([.2,.8]); target=torch.zeros(1,3)
+        expected=(w*(.5*means.square()*torch.exp(-2*logs)+logs).mean((0,2))).sum()
+        torch.testing.assert_close(losses(means,logs,target,w,1.),expected)
 
 if __name__=='__main__': unittest.main()

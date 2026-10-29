@@ -16,24 +16,44 @@ def context(checkpoint, cache, device):
     return saved,meta,model,mean,std
 
 @torch.no_grad()
-def calibrate(checkpoint, cache, output, device='auto', batch=512, max_windows=50000, tolerance=.03):
+def calibrate(checkpoint, cache, output, device='auto', batch=512, max_windows=50000, tolerance=.03,
+              selection_split='valid', calibrate_sigma=True, reference_rmse=None, reference_checkpoint=None):
     if max_windows<4 or tolerance<0: raise ValueError('require at least four calibration windows and nonnegative tolerance')
+    if selection_split not in ['train','valid']: raise ValueError('threshold selection must never use test')
+    if reference_rmse is not None and (not np.isfinite(reference_rmse) or reference_rmse<=0):
+        raise ValueError('reference RMSE must be positive and finite, measured on the same selection windows')
     device=device_for(device); saved,meta,model,mean,std=context(checkpoint,cache,device)
-    cfg=saved['config']['data']; ds=Windows(cache,'valid',cfg['window'],cfg['horizon'],cfg['valid_stride'])
+    if saved['config']['train'].get('supervision','all')=='final':
+        raise ValueError('final-only trained model has no trained intermediate heads; do not calibrate early exits')
+    cfg=saved['config']['data']; ds=Windows(cache,selection_split,cfg['window'],cfg['horizon'],cfg['valid_stride'])
+    reference=None; reference_values=[]
+    if reference_checkpoint:
+        if reference_rmse is not None: raise ValueError('provide reference_checkpoint or reference_rmse, not both')
+        ref_saved,_,ref_model,ref_mean,ref_std=context(reference_checkpoint,cache,device)
+        if any(ref_saved['config']['data'][k]!=cfg[k] for k in ['window','horizon','fs']):
+            raise ValueError('reference must use identical input/target timing')
+        reference=(ref_model,ref_mean,ref_std)
     indices=np.linspace(0,len(ds)-1,min(len(ds),max_windows),dtype=np.int64)
     if len(indices)<4: raise ValueError('validation split too small to calibrate')
     predictions=[]; sigmas=[]; targets=[]
     for x,y in DataLoader(Subset(ds,indices.tolist()),batch_size=batch):
         p,s=model((x.to(device)-mean)/std); checked_tensor(p,'calibration mean'); checked_tensor(s,'calibration log sigma')
         predictions.append(p.cpu().numpy()); sigmas.append(s.exp().cpu().numpy()); targets.append(y.numpy())
+        if reference:
+            ref_model,ref_mean,ref_std=reference
+            rp,_=ref_model.final((x.to(device)-ref_mean)/ref_std)
+            checked_tensor(rp,'reference prediction'); reference_values.append(rp.cpu().numpy())
     p=np.concatenate(predictions); sigma=np.concatenate(sigmas); y=np.concatenate(targets)
-    # Two disjoint window subsets of validation. No test samples used for decisions.
-    cut=len(p)//2; error=p-y[:,None,:]
-    scales=np.sqrt(np.mean((error[:cut]/sigma[:cut])**2,axis=0)).clip(.05,20)
+    # Optional disjoint scale calibration. Raw-sigma mode searches all selected windows.
+    cut=len(p)//2 if calibrate_sigma else 0; error=p-y[:,None,:]
+    scales=np.sqrt(np.mean((error[:cut]/sigma[:cut])**2,axis=0)).clip(.05,20) if calibrate_sigma else np.ones((model.depth,3),dtype=np.float32)
     p=p[cut:]; y=y[cut:]; sigma=sigma[cut:]*scales[None]
+    if reference:
+        ref_p=np.concatenate(reference_values)[cut:]
+        reference_rmse=float(np.sqrt(np.mean(np.sum((ref_p-y)**2,axis=1))))
     scores=np.linalg.norm(sigma,axis=-1); costs=model.operation_costs()
     baseline=float(np.sqrt(np.mean(np.sum((p[:,-1]-y)**2,axis=1))))
-    rows=[]; allowed=baseline*(1+tolerance)
+    rows=[]; allowed=(baseline if reference_rmse is None else reference_rmse)*(1+tolerance)
     for threshold in np.unique(np.r_[0.,np.quantile(scores,np.linspace(0,1,81))]):
         mask=scores<=threshold; mask[:,-1]=True; exits=mask.argmax(1)
         pred=p[np.arange(len(p)),exits]
@@ -43,8 +63,11 @@ def calibrate(checkpoint, cache, output, device='auto', batch=512, max_windows=5
     eligible=[r for r in rows if r['rmse']<=allowed and r['linear_conv_flops']<costs['final']]
     selected=min(eligible,key=lambda r:r['linear_conv_flops']) if eligible else None
     policy=dict(format_version=1,checkpoint_sha256=file_hash(checkpoint),cache_identity=meta['identity'],
-        selection_split='valid',scale_windows=cut,selection_windows=len(p),max_windows=max_windows,tolerance=tolerance,
-        sigma_scales=scales.tolist(),score='L2 norm of calibrated per-axis standard deviations in meters',
+        selection_split=selection_split,scale_windows=cut,selection_windows=len(p),max_windows=max_windows,tolerance=tolerance,
+        sigma_calibration=calibrate_sigma,reference_rmse=reference_rmse,allowed_rmse=allowed,
+        reference_checkpoint_sha256=file_hash(reference_checkpoint) if reference_checkpoint else None,
+        selection_note='evenly spaced capped windows; no augmentation; reference must use identical windows/protocol',
+        sigma_scales=scales.tolist(),score='L2 norm of per-axis standard deviations in meters; scales applied only when enabled',
         mode='dynamic' if selected else 'final',threshold=selected['threshold'] if selected else 0.,
         baseline_rmse=baseline,selected=selected,costs=costs,curve=rows)
     write_json(output,policy); print('Calibration:',policy['mode'],'threshold',policy['threshold'],'baseline RMSE',baseline,flush=True)
@@ -61,6 +84,23 @@ def trajectory_metrics(pred, target, seconds):
         row['rte30_'+label]=float(np.sqrt(np.mean(np.sum((error[lag:,:dim]-error[:-lag,:dim])**2,axis=1)))) if lag>=1 and len(error)>lag else None
     row['rte_actual_seconds']=lag*seconds
     row['final_error_xyz']=float(np.linalg.norm(error[-1])); return row
+
+
+def trajectory_increments(pred, target, positions, starts, horizon, stride):
+    """Causal mean-velocity integration for overlapping displacement outputs.
+
+    First output initializes the trajectory origin at its endpoint. Each later
+    output advances only by stride/horizon of that output. Ground truth uses
+    actual endpoint differences, never rescaled overlapping target labels.
+    """
+    if stride == horizon:
+        return pred.astype(np.float64), target.astype(np.float64), target.astype(np.float64)
+    if not 0 < stride < horizon:
+        raise ValueError('trajectory stride must be positive and <= displacement horizon')
+    endpoints=np.asarray(starts,dtype=np.int64)+horizon
+    truth=np.diff(np.asarray(positions[endpoints],dtype=np.float64),axis=0)
+    factor=stride/horizon
+    return pred[1:].astype(np.float64)*factor,truth,target[1:].astype(np.float64)*factor
 
 def fixed_duration_metrics(pred, target, seconds, segment_seconds=30.):
     """All complete, non-overlapping segments from t=0; never rank by error.
@@ -91,14 +131,23 @@ def evaluate(checkpoint,cache,output,policy_path=None,split='test',device='auto'
     if policy and (policy['checkpoint_sha256']!=file_hash(checkpoint) or policy['cache_identity']!=meta['identity']):
         raise ValueError('policy belongs to another checkpoint/cache')
     cfg=saved['config']['data']; records=[r for r in meta['records'] if r['split']==split]
-    seconds=cfg['horizon']/cfg['fs']
+    stride=cfg.get('eval_stride',cfg['horizon'])
+    if not 0 < stride <= cfg['horizon'] or cfg['window'] != cfg['horizon']:
+        raise ValueError('trajectory evaluation requires same-interval input/target and 0 < eval_stride <= horizon')
+    displacement_seconds=cfg['horizon']/cfg['fs']; seconds=stride/cfg['fs']
     # Reject an invalid protocol before expensive inference.
     fixed_duration_metrics(np.empty((0,3)),np.empty((0,3)),seconds,segment_seconds)
     if not records: raise ValueError('no records for evaluation')
     costs=model.operation_costs(); per_record=[]; total_sq=0.; total_sq_xy=0.; total_n=0; histogram=np.zeros(model.depth,dtype=np.int64); total_cost=0.
+    positions=np.load(Path(cache)/'positions.npy',mmap_mode='r')
+    total_intervals=0; oracle_rows=[]
     dynamic=policy is not None and policy['mode']=='dynamic'
+    if dynamic and saved['config']['train'].get('supervision','all')=='final':
+        raise ValueError('dynamic evaluation is invalid for final-only trained heads')
     for r in records:
-        ds=Windows(cache,split,cfg['window'],cfg['horizon'],cfg['horizon'],r['name'])
+        ds=Windows(cache,split,cfg['window'],cfg['horizon'],stride,r['name'])
+        if stride<cfg['horizon'] and len(ds)<2:
+            raise ValueError('record too short for overlapping trajectory evaluation: '+r['name'])
         predictions=[]; targets=[]
         for x,y in DataLoader(ds,batch_size=batch):
             x=(x.to(device)-mean)/std
@@ -111,8 +160,16 @@ def evaluate(checkpoint,cache,output,policy_path=None,split='test',device='auto'
             predictions.append(pred.cpu().numpy()); targets.append(y.numpy())
         p=np.concatenate(predictions); y=np.concatenate(targets); sq=np.sum((p-y)**2,axis=1)
         total_sq+=float(sq.sum()); total_sq_xy+=float(np.sum((p[:,:2]-y[:,:2])**2)); total_n+=len(sq)
-        row=dict(record=r['name'],windows=len(p),displacement_rmse=float(np.sqrt(sq.mean())),**trajectory_metrics(p,y,cfg['horizon']/cfg['fs']))
-        row['fixed_duration']=fixed_duration_metrics(p,y,seconds,segment_seconds)
+        starts=ds.indices(np.arange(len(ds)))
+        increments,truth,oracle=trajectory_increments(p,y,positions,starts,cfg['horizon'],stride)
+        total_intervals+=len(increments)
+        row=dict(record=r['name'],windows=len(p),trajectory_intervals=len(increments),
+                 trajectory_start_seconds=cfg['horizon']/cfg['fs'] if stride<cfg['horizon'] else 0.,
+                 displacement_rmse=float(np.sqrt(sq.mean())),**trajectory_metrics(increments,truth,seconds))
+        row['fixed_duration']=fixed_duration_metrics(increments,truth,seconds,segment_seconds)
+        oracle_row=trajectory_metrics(oracle,truth,seconds)
+        oracle_row['fixed_duration']=fixed_duration_metrics(oracle,truth,seconds,segment_seconds)
+        oracle_rows.append(oracle_row)
         per_record.append(row)
         print(f"{r['name']} displacement={row['displacement_rmse']:.4f} full_ATE_XYZ={row['ate_xyz']:.4f}",flush=True)
     macro={key:float(np.mean([r[key] for r in per_record if r[key] is not None])) if any(r[key] is not None for r in per_record) else None
@@ -123,24 +180,34 @@ def evaluate(checkpoint,cache,output,policy_path=None,split='test',device='auto'
     covered=sum(r['fixed_duration']['covered_windows'] for r in per_record)
     fixed=dict(segment_seconds=segment_seconds,segments=sum(r['segments'] for r in eligible),
         eligible_records=len(eligible),excluded_short_records=len(per_record)-len(eligible),
-        covered_windows=covered,excluded_tail_windows=total_n-covered,coverage_fraction=covered/total_n,
+        covered_windows=covered,excluded_tail_windows=total_intervals-covered,coverage_fraction=covered/total_intervals,
+        count_unit='trajectory update intervals (not overlapping model outputs)',
         aggregation='arithmetic mean of segment RMSEs within each record, then equal-weight mean over eligible records',
-        selection='all complete non-overlapping segments starting at record time zero; incomplete tails excluded; no error-based selection',
+        selection='all complete non-overlapping segments from trajectory origin; incomplete tails excluded; no error-based selection',
+        trajectory_origin_seconds=displacement_seconds if stride<cfg['horizon'] else 0.,
         alignment='initial translation at every segment start only; no rotation or scale fitting',
         rte_protocol='30-second endpoint differences within each segment; pairs crossing segment boundaries excluded',
         macro=segment_macro)
-    primary=dict(units='meters',ate_segment_seconds=segment_seconds,displacement_seconds=seconds,
+    primary=dict(units='meters',ate_segment_seconds=segment_seconds,displacement_seconds=displacement_seconds,update_seconds=seconds,
         ate_xyz=segment_macro['ate_xyz'],ate_xy=segment_macro['ate_xy'],
         rte30_xyz=macro['rte30_xyz'],rte30_xy=macro['rte30_xy'],
         displacement_rmse_xyz=float(np.sqrt(total_sq/total_n)),displacement_rmse_xy=float(np.sqrt(total_sq_xy/total_n)),
         ate_protocol='all complete fixed-duration segments; initial translation per segment; record-balanced mean',
         rte_protocol='all legal 30-second endpoint pairs within full records; record-balanced RMSE mean; includes record tails',
-        displacement_protocol='pooled vector RMSE across all predicted displacement intervals; includes record tails')
+        displacement_protocol='pooled vector RMSE of full-horizon predictions on every update; overlapping outputs included; includes record tails')
+    oracle_eligible=[r['fixed_duration']['macro']['ate_xyz'] for r in oracle_rows if r['fixed_duration']['segments']]
     report=dict(split=split,records=len(records),windows=total_n,mode='dynamic' if dynamic else 'final',
         checkpoint_sha256=file_hash(checkpoint),cache_identity=meta['identity'],data_limits=meta['limits'],
-        trajectory_protocol='non-overlapping predicted displacements, initial translation only, no heading alignment',
+        trajectory_protocol=('causal window-average velocity times update interval; first output endpoint initializes origin; actual GT endpoint increments; initial translation only'
+                             if stride<cfg['horizon'] else 'non-overlapping predicted displacements, initial translation only, no heading alignment'),
+        update_seconds=seconds,trajectory_intervals=total_intervals,
+        integration_oracle=dict(ate_xyz=float(np.mean([r['ate_xyz'] for r in oracle_rows])),
+            rte30_xyz=float(np.mean([r['rte30_xyz'] for r in oracle_rows if r['rte30_xyz'] is not None])) if any(r['rte30_xyz'] is not None for r in oracle_rows) else None,
+            segment_ate_xyz=float(np.mean(oracle_eligible)) if oracle_eligible else None,
+            note='Replace network outputs by exact full-horizon GT displacements, keeping the same causal integrator. Diagnostic smoothing error; not a mathematical lower bound or network result.'),
         horizon_seconds=cfg['horizon']/cfg['fs'],displacement_rmse=float(np.sqrt(total_sq/total_n)),macro=macro,
         exit_histogram=histogram.tolist(),linear_conv_flops_per_window=total_cost/total_n,
+        linear_conv_flops_per_second=(total_cost/total_n)/seconds,
         cost_note='multiply-add counted as 2 FLOPs; all visited heads included; excludes activation, routing, memory; no latency claim',
         primary_metrics=primary,fixed_duration=fixed,per_record=per_record)
     write_json(output,report); print('Evaluation:',json.dumps({k:report[k] for k in ['mode','primary_metrics','exit_histogram']}),flush=True)

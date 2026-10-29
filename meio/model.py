@@ -16,20 +16,24 @@ class Affine(nn.Module):
 
 class Residual(nn.Module):
     # Official LLIO PreAffinePostLayerScale, with a descriptive local name.
-    def __init__(self, dim, fn):
+    def __init__(self, dim, fn, architecture='legacy'):
         super().__init__()
         self.scale = nn.Parameter(torch.full((1, 1, dim), 0.1))
         self.affine = Affine(dim); self.affine_out = Affine(dim); self.fn = fn
+        self.architecture = architecture
     def forward(self, x):
+        if self.architecture == 'paper_fig3':
+            # Fig. 3 puts the second Affine inside the residual branch.
+            return x + self.affine_out(self.fn(self.affine(x))) * self.scale
         return self.affine_out(x + self.fn(self.affine(x)) * self.scale)
 
 class Block(nn.Module):
-    def __init__(self, tokens, dim, expansion, dropout):
+    def __init__(self, tokens, dim, expansion, dropout, architecture='legacy'):
         super().__init__()
-        self.tokens = Residual(dim, nn.Conv1d(tokens, tokens, 1, bias=False))
+        self.tokens = Residual(dim, nn.Conv1d(tokens, tokens, 1, bias=False), architecture)
         hidden = int(dim * expansion)
         self.channels = Residual(dim, nn.Sequential(nn.Linear(dim, hidden), nn.GELU(),
-                                                    nn.Dropout(dropout), nn.Linear(hidden, dim)))
+                                                    nn.Dropout(dropout), nn.Linear(hidden, dim)), architecture)
     def forward(self, x):
         return self.channels(self.tokens(x))
 
@@ -45,14 +49,30 @@ class Head(nn.Module):
         x = x.mean(1)
         return self.mean(x), self.log_sigma(x).clamp(self.low, self.high)
 
+class SharedHead(nn.Module):
+    """Fig. 3: average pool -> shared Linear/GELU -> two Linear outputs."""
+    def __init__(self, dim, low, high):
+        super().__init__()
+        self.shared=nn.Sequential(nn.Linear(dim,dim),nn.GELU())
+        self.mean=nn.Linear(dim,3); self.log_sigma=nn.Linear(dim,3)
+        self.low,self.high=math.log(low),math.log(high)
+        nn.init.normal_(self.mean.weight,std=.01); nn.init.zeros_(self.mean.bias)
+        nn.init.zeros_(self.log_sigma.weight); nn.init.constant_(self.log_sigma.bias,math.log(.2))
+    def forward(self,x):
+        h=self.shared(x.mean(1))
+        return self.mean(h),self.log_sigma(h).clamp(self.low,self.high)
+
 class MEIO(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.cfg = dict(cfg); self.depth = cfg["depth"]
+        architecture=cfg.get('architecture','legacy')
+        if architecture not in ['legacy','paper_fig3']: raise ValueError('unknown model architecture')
         tokens = cfg["window"] // cfg["patch"]
         self.embedding = nn.Conv1d(6, cfg["dim"], cfg["patch"], stride=cfg["patch"])
-        self.blocks = nn.ModuleList([Block(tokens, cfg["dim"], cfg["expansion"], cfg["dropout"]) for _ in range(self.depth)])
-        self.heads = nn.ModuleList([Head(cfg["dim"], cfg["min_sigma"], cfg["max_sigma"]) for _ in range(self.depth)])
+        self.blocks = nn.ModuleList([Block(tokens, cfg["dim"], cfg["expansion"], cfg["dropout"], architecture) for _ in range(self.depth)])
+        head_class=SharedHead if architecture=='paper_fig3' else Head
+        self.heads = nn.ModuleList([head_class(cfg["dim"], cfg["min_sigma"], cfg["max_sigma"]) for _ in range(self.depth)])
     def embed(self, x):
         if x.ndim != 3 or x.shape[1:] != (6, self.cfg["window"]):
             raise ValueError("expected [batch, 6, window]")
@@ -89,7 +109,7 @@ class MEIO(nn.Module):
         d = self.cfg["dim"]; t = self.cfg["window"] // self.cfg["patch"]; h = int(d*self.cfg["expansion"])
         embedding = 2*t*d*6*self.cfg["patch"]
         block = 2*t*t*d + 4*t*d*h
-        head = 4*(d*d + d*3)
+        head = (2*d*d+4*d*3) if self.cfg.get('architecture')=='paper_fig3' else 4*(d*d + d*3)
         return dict(final=embedding+self.depth*block+head,
                     dynamic=[embedding+(i+1)*(block+head) for i in range(self.depth)])
 

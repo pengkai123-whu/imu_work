@@ -27,7 +27,17 @@ python tools/full_data_check.py
 
 最后一个脚本固定写入 runs/full_data_check，已有 last.pt 时会拒绝覆盖；重测应先改输出目录。完整实验使用 configs/yt.json，不能把检查脚本的 limit_batches 带入正式结果。
 
-这些结果证明当前环境下关键路径已经实际执行，不证明网络已收敛。没有完成默认 50 轮全量训练，短训练得到的 RMSE/ATE 不能当作论文复现结果。大 batch 的合成吞吐不包含加载和优化器开销，不作为训练速度结论。CUDA OOM 回退代码已审查，但没有人为制造显存耗尽来实测该分支。
+这些早期检查只证明执行路径，不证明网络收敛。后续已有 runs/yt 的 legacy 50 轮训练；新版 paper_fig3 和当前半秒更新配置尚未完成全量收敛训练。短训练 RMSE/ATE 不能作为论文结果。大 batch 合成吞吐不含加载和优化器开销；OOM 回退代码经过审查，没有人为耗尽显存实测。
+
+## 当前 1 秒输入、1 秒位移、0.5 秒更新版本
+
+12 项核心单测全部通过；新增图 3 共享 head、残差位置、patch 嵌入等价性、所有出口梯度、非零 log sigma 的完整 NLL 加权及重叠积分检查。恒速合成轨迹不会重复累加路程；加速轨迹真值用实际半秒端点差，能够检测窗口平均速度近似的误差。
+
+validation/baseline_cadence_execution.json 记录真实 H5、CUDA、完整 8x128 paper_fig3 的两种更新配置。每个 split 2 条记录、每条 14000 点，4 轮每轮 3 个 batch，并恢复到第 5 轮；MSE、过渡、NLL、valid 校准、train 原始标准差选阈值、final/dynamic 评估均通过，AMP 未跳过更新。默认半秒更新测试产生 276 个 1 秒预测、274 个半秒轨迹区间和 4 个完整 30 秒片段。该结果不是精度实验。
+
+旧 legacy 权重另在全部 213 条记录上复测，位移 RMSE、完整 ATE/RTE、出口分布与三个主指标保持原值。旧模型诊断见 validation/baseline_diagnostics.json，不能混作新结构证据；一次 batch=1 的 GPU 诊断中动态路由慢于最终出口，不宣称实际时延收益。
+
+test.py 新默认配置的 CLI、final_only 仅最终出口 CLI、train 原始标准差参考 checkpoint 阈值选择 CLI 也通过；汇总见 validation/cadence_cli_checks.json。协议说明文字有更新，旧模型兼容检查针对数值字段。
 
 本地原始日志、配置、checkpoint 和 JSON 报告保存在 runs/，不进入 Git。全量缓存保存在 cache/yt，可供本地后续分析。当前启动方式为 python train.py / python test.py。
 

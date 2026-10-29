@@ -5,7 +5,7 @@ from meio.common import ROOT, read_config
 def main():
     p=argparse.ArgumentParser(); sub=p.add_subparsers(dest='command',required=True)
     for name in ['prepare','train']:
-        s=sub.add_parser(name); s.add_argument('--config',default=str(ROOT/'configs/yt.json'))
+        s=sub.add_parser(name); s.add_argument('--config',default=str(ROOT/'configs/yt_1s_update05s.json'))
         if name=='train': s.add_argument('--resume')
     for name in ['calibrate','evaluate']:
         s=sub.add_parser(name); s.add_argument('--checkpoint',required=True); s.add_argument('--cache',required=True)
