@@ -212,6 +212,29 @@ class DiagonalSSMResidual(nn.Module):
         return self.norm(self.out_proj(torch.stack(outputs, dim=1)))
 
 
+class SampleSSMResidual(nn.Module):
+    """Causal SSM over the 200 raw IMU samples before patch pooling."""
+    def __init__(self, dim, tokens):
+        super().__init__()
+        self.tokens = tokens
+        self.in_proj = nn.Linear(6, 2 * dim)
+        self.out_proj = nn.Linear(dim, dim)
+        self.norm = nn.LayerNorm(dim)
+        self.logit_decay = nn.Parameter(torch.full((dim,), 1.5))
+
+    def forward(self, x):
+        # x: [batch, 6, samples]. The recurrence is one-way in sample time.
+        value, gate = self.in_proj(x.transpose(1, 2)).chunk(2, dim=-1)
+        decay = torch.sigmoid(self.logit_decay).to(x.dtype)
+        state = torch.zeros_like(value[:, 0])
+        outputs = []
+        for step in range(value.shape[1]):
+            state = decay * state + (1.0 - decay) * value[:, step]
+            outputs.append(state * torch.sigmoid(gate[:, step]))
+        z = self.norm(self.out_proj(torch.stack(outputs, dim=1))).transpose(1, 2)
+        return nn.functional.adaptive_avg_pool1d(z, self.tokens).transpose(1, 2)
+
+
 class OutputResidual(nn.Module):
     """Small displacement correction from the current causal token state."""
     def __init__(self, dim):
@@ -240,10 +263,14 @@ class MEIOSpectral(MEIO):
         self.temporal_gate = nn.Parameter(torch.zeros(1, 1, cfg["dim"])) if self.temporal_mixer is not None else None
         self.output_residual = OutputResidual(cfg["dim"]) if cfg.get("output_correction", False) else None
         self.output_gate = nn.Parameter(torch.zeros(1, 3)) if self.output_residual is not None else None
+        self.sample_ssm = SampleSSMResidual(cfg["dim"], tokens) if cfg.get("sample_ssm", False) else None
+        self.sample_ssm_gate = nn.Parameter(torch.zeros(1, 1, cfg["dim"])) if self.sample_ssm is not None else None
 
     def embed(self, x):
         base = super().embed(x)
         out = base + self.spectral_gate * self.spectral_residual(x)
+        if self.sample_ssm is not None:
+            out = out + self.sample_ssm_gate * self.sample_ssm(x)
         if self.temporal_mixer is not None:
             out = out + self.temporal_gate * self.temporal_mixer(base)
         return out

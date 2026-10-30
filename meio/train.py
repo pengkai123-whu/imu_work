@@ -73,7 +73,7 @@ def fit(cfg, resume=None, init=None):
         if initial['cache_identity'] != meta['identity']:
             raise ValueError('initial checkpoint/cache mismatch')
         missing, unexpected = model.load_state_dict(initial['model'], strict=False)
-        allowed_missing = {key for key in model.state_dict() if key.startswith('spectral_residual.') or key.startswith('temporal_mixer.') or key.startswith('output_residual.') or '.ssm_channels.' in key or '.ssm_gate' in key or key in {'spectral_gate', 'temporal_gate', 'output_gate'}}
+        allowed_missing = {key for key in model.state_dict() if key.startswith('spectral_residual.') or key.startswith('temporal_mixer.') or key.startswith('output_residual.') or key.startswith('sample_ssm.') or '.ssm_channels.' in key or '.ssm_gate' in key or key in {'spectral_gate', 'temporal_gate', 'output_gate', 'sample_ssm_gate'}}
         if not set(missing).issubset(allowed_missing) or unexpected:
             raise ValueError(f'initial checkpoint mismatch: missing={missing}, unexpected={unexpected}')
         print('Initialized from:', init, 'new keys:', sorted(missing), flush=True)
@@ -82,7 +82,7 @@ def fit(cfg, resume=None, init=None):
             raise ValueError('freeze_base currently requires a residual model variant')
         trainable_prefixes = ('spectral_residual.', 'spectral_gate', 'temporal_mixer.', 'temporal_gate', 'output_residual.', 'output_gate')
         for name, parameter in model.named_parameters():
-            parameter.requires_grad = name.startswith(trainable_prefixes) or '.ssm_channels.' in name or '.ssm_gate' in name
+            parameter.requires_grad = name.startswith(trainable_prefixes) or name.startswith('sample_ssm.') or name == 'sample_ssm_gate' or '.ssm_channels.' in name or '.ssm_gate' in name
         trainable = [parameter for parameter in model.parameters() if parameter.requires_grad]
         if not trainable:
             raise ValueError('freeze_base left no trainable parameters')

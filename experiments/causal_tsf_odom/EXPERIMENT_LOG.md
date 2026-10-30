@@ -18,6 +18,7 @@ All rows use the same 24-record screening subset, the final MEIO exit, full-reco
 | MLP + gated SSM residual in all blocks | 1.65564 | 1.02411 | **0.08883** | reject; trajectory metrics worse |
 | MLP + gated SSM residual in blocks 6--7 | 1.65457 | 1.02383 | 0.08884 | reject |
 | three-domain + local trend consistency loss | 1.64985 | 1.02813 | 0.08928 | reject |
+| three-domain + sample-level causal SSM | 1.65475 | 1.02364 | 0.08885 | reject |
 
 The SSM replacement is implemented as a causal diagonal state recurrence. The stable candidate preserves the trained MLP and starts its SSM gate at zero, so initialization is function-preserving. It still did not improve the trajectory metrics in this screen. The direct replacement result is retained as a negative control because it demonstrates why a gated residual is needed.
 

@@ -1,0 +1,5 @@
+{
+  "data": {"h5": "../../YT_server_200Hz.h5", "cache": "../cache/yt", "fs": 200, "window": 200, "horizon": 200, "train_stride": 200, "valid_stride": 200, "max_records": null, "max_samples": null},
+  "model": {"variant": "spectral", "spectral_domains": ["fourier", "graph", "wavelet"], "sample_ssm": true, "window": 200, "patch": 50, "dim": 128, "depth": 8, "expansion": 2, "dropout": 0.5, "min_sigma": 0.01, "max_sigma": 10.0},
+  "train": {"out": "../runs/meio_spectral_sample_ssm_screen", "seed": 6, "batch": 1024, "auto_batch": false, "max_batch": 1024, "workers": 0, "lr": 0.00005, "mse_epochs": 12, "transition_epochs": 3, "nll_epochs": 5, "gamma": 0.5, "clip_grad": 1.0, "augment": true, "device": "cuda", "cpu_threads": 4, "log_every": 20, "max_train_records": 24, "max_train_windows": 12000, "max_valid_records": 24, "max_valid_windows": 12000}
+}
