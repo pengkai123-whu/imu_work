@@ -1,0 +1,72 @@
+{
+  "protocol": {
+    "cache": "cache/yt",
+    "train_records": 24,
+    "train_window_cap": 12000,
+    "eval_records": 24,
+    "eval_window_cap": 12000,
+    "input_seconds": 1.0,
+    "target_seconds": 1.0,
+    "update_seconds": 1.0,
+    "ate": "full record, initial translation only, record-macro",
+    "rte": "all legal 30-second endpoint pairs, record-macro",
+    "displacement": "pooled XYZ one-step RMSE"
+  },
+  "metrics_m": {
+    "meio_frozen": {
+      "ate_xyz": 1.884939569728256,
+      "rte30_xyz": 1.2033771615374678,
+      "displacement_rmse_xyz": 0.0940902072505638
+    },
+    "time": {
+      "ate_xyz": 8.017528770491486,
+      "rte30_xyz": 5.212964331567927,
+      "displacement_rmse_xyz": 0.2536573931492914
+    },
+    "tsf": {
+      "ate_xyz": 7.3845936667657,
+      "rte30_xyz": 4.814984269021659,
+      "displacement_rmse_xyz": 0.24051132302910733
+    },
+    "tsf_patch": {
+      "ate_xyz": 7.3629804132648475,
+      "rte30_xyz": 4.454791612029267,
+      "displacement_rmse_xyz": 0.21920363724080685
+    },
+    "tsf_gru": {
+      "ate_xyz": 7.8035549355082665,
+      "rte30_xyz": 4.520634595422754,
+      "displacement_rmse_xyz": 0.24331906245029
+    }
+  },
+  "relative_reduction_vs_frozen_meio": {
+    "time": {
+      "ate_xyz": -3.2534672725064286,
+      "rte30_xyz": -3.331945543081191,
+      "displacement_rmse_xyz": -1.69589578513519
+    },
+    "tsf": {
+      "ate_xyz": -2.9176819168957797,
+      "rte30_xyz": -3.0012262347325116,
+      "displacement_rmse_xyz": -1.5561780556888523
+    },
+    "tsf_patch": {
+      "ate_xyz": -2.9062156323273207,
+      "rte30_xyz": -2.70190805876497,
+      "displacement_rmse_xyz": -1.3297178701824293
+    },
+    "tsf_gru": {
+      "ate_xyz": -3.139949662488794,
+      "rte30_xyz": -2.756623226625863,
+      "displacement_rmse_xyz": -1.5860189871016783
+    }
+  },
+  "selection": {
+    "retained": "tsf_patch",
+    "rejected": {
+      "tsf_gru": "validation metrics worse than tsf_patch"
+    },
+    "status": "screening only; frozen MEIO used a full-data checkpoint, so this is not a final train-budget comparison",
+    "thirty_percent_breakthrough": false
+  }
+}

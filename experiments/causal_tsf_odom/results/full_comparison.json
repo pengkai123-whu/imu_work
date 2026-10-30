@@ -1,0 +1,30 @@
+{
+  "protocol": {
+    "candidate": "full train/test cache; 1s input, 1s target, 1Hz non-overlap",
+    "baseline": "existing runs/yt frozen final MEIO report",
+    "ate": "full record, initial translation only, record-macro",
+    "rte": "all legal 30-second endpoint pairs, record-macro",
+    "displacement": "pooled XYZ one-step RMSE",
+    "candidate_epochs": 20,
+    "candidate_seed": 6
+  },
+  "baseline_meio": {
+    "ate_xyz": 1.8549860254870243,
+    "rte30_xyz": 1.058897072419063,
+    "displacement_rmse_xyz": 0.0974513188383057
+  },
+  "candidate_tsf_patch": {
+    "ate_xyz": 3.199054587497205,
+    "rte30_xyz": 1.5296892412473284,
+    "displacement_rmse_xyz": 0.12417667634187315,
+    "records": 213,
+    "windows": 36105
+  },
+  "relative_reduction_candidate_vs_baseline": {
+    "ate_xyz": -0.7245707210421153,
+    "rte30_xyz": -0.4446061672006847,
+    "displacement_rmse_xyz": -0.2742431587602321
+  },
+  "thirty_percent_breakthrough": false,
+  "interpretation": "The retained candidate is not yet better than MEIO on the full test split; do not claim a 30% breakthrough."
+}
