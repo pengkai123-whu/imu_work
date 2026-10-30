@@ -20,6 +20,8 @@ All rows use the same 24-record screening subset, the final MEIO exit, full-reco
 | three-domain + local trend consistency loss | 1.64985 | 1.02813 | 0.08928 | reject |
 | three-domain + sample-level causal SSM | 1.65475 | 1.02364 | 0.08885 | reject |
 | three-domain + multi-scale temporal residual | 1.64775 | 1.03241 | **0.08914** | reject; step RMSE only, trajectory metrics worse |
+| three-domain + adaptive domain-attention residual | 1.64726 | 1.03215 | **0.08914** | reject; adaptive fusion did not improve trajectory metrics |
+| three-domain + per-block spectral re-injection | 1.64413 | 1.03238 | **0.08914** | reject; deeper injection did not improve trajectory metrics |
 
 ## Full-data scale check
 

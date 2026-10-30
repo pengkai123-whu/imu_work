@@ -137,7 +137,7 @@ class MEIO(nn.Module):
 
 class SpectralResidual(nn.Module):
     """Signed Fourier/graph/Haar residual aligned to MEIO patch tokens."""
-    def __init__(self, dim, tokens, domains=None):
+    def __init__(self, dim, tokens, domains=None, domain_attention=False):
         super().__init__()
         self.tokens = tokens
         domains = [str(v).lower() for v in (domains or ["fourier", "graph", "wavelet"])]
@@ -149,6 +149,11 @@ class SpectralResidual(nn.Module):
         self.graph = nn.Sequential(nn.Conv1d(6, dim, 1), nn.GELU(), nn.Conv1d(dim, dim, 1))
         self.wave = nn.Sequential(nn.Conv1d(6, dim, 1), nn.GELU(), nn.Conv1d(dim, dim, 1))
         self.fuse = nn.Sequential(nn.Linear(dim * 3, dim), nn.GELU(), nn.LayerNorm(dim))
+        self.domain_attention = bool(domain_attention)
+        if self.domain_attention:
+            self.attention = nn.Sequential(nn.Linear(dim * 3, dim), nn.GELU(), nn.Linear(dim, 3))
+            self.attention_out = nn.Sequential(nn.Linear(dim, dim), nn.GELU(), nn.LayerNorm(dim))
+            self.attention_gate = nn.Parameter(torch.zeros(1, 1, dim))
 
     @staticmethod
     def _haar(x):
@@ -173,7 +178,14 @@ class SpectralResidual(nn.Module):
         parts = [freq if "fourier" in self.domains else torch.zeros_like(freq),
                  graph if "graph" in self.domains else torch.zeros_like(graph),
                  wave if "wavelet" in self.domains else torch.zeros_like(wave)]
-        return self.fuse(torch.cat(parts, dim=-1))
+        joined = torch.cat(parts, dim=-1)
+        fused = self.fuse(joined)
+        if not self.domain_attention:
+            return fused
+        stacked = torch.stack(parts, dim=2)
+        weights = torch.softmax(self.attention(joined), dim=-1).unsqueeze(-1)
+        attended = self.attention_out((stacked * weights).sum(dim=2))
+        return fused + self.attention_gate * attended
 
 
 class CausalPatchResidual(nn.Module):
@@ -269,9 +281,10 @@ class MEIOSpectral(MEIO):
     def __init__(self, cfg):
         super().__init__(cfg)
         tokens = cfg["window"] // cfg["patch"]
-        self.spectral_residual = SpectralResidual(cfg["dim"], tokens, cfg.get("spectral_domains"))
+        self.spectral_residual = SpectralResidual(cfg["dim"], tokens, cfg.get("spectral_domains"), cfg.get("spectral_attention", False))
         # At initialization this is exactly the frozen MEIO representation.
         self.spectral_gate = nn.Parameter(torch.zeros(1, 1, cfg["dim"]))
+        self.spectral_reinject_gate = nn.Parameter(torch.zeros(1, 1, cfg["dim"])) if cfg.get("spectral_reinject", False) else None
         if cfg.get("ssm_mixer", False):
             self.temporal_mixer = DiagonalSSMResidual(cfg["dim"])
         elif cfg.get("temporal_mixer", False):
@@ -296,6 +309,54 @@ class MEIOSpectral(MEIO):
         if self.temporal_mixer is not None:
             out = out + self.temporal_gate * self.temporal_mixer(base)
         return out
+
+    def _reinject(self, x):
+        if self.spectral_reinject_gate is None:
+            return None
+        return self.spectral_reinject_gate * self.spectral_residual(x)
+
+    def forward(self, x):
+        h = self.embed(x); reinject = self._reinject(x); means, logs = [], []
+        for block, head in zip(self.blocks, self.heads):
+            h = block(h)
+            if reinject is not None:
+                h = h + reinject
+            mean, log = self._predict(head, h); means.append(mean); logs.append(log)
+        return torch.stack(means, 1), torch.stack(logs, 1)
+
+    def final(self, x):
+        h = self.embed(x); reinject = self._reinject(x)
+        for block in self.blocks:
+            h = block(h)
+            if reinject is not None:
+                h = h + reinject
+        return self._predict(self.heads[-1], h)
+
+    @torch.no_grad()
+    def dynamic(self, x, threshold, scales=None):
+        if self.training:
+            raise RuntimeError("dynamic routing requires model.eval()")
+        if not math.isfinite(threshold) or threshold < 0:
+            raise ValueError("threshold must be finite and nonnegative")
+        scales = torch.ones(self.depth, 3, device=x.device) if scales is None else torch.as_tensor(scales, device=x.device, dtype=x.dtype)
+        if scales.shape != (self.depth, 3) or not torch.isfinite(scales).all() or (scales <= 0).any():
+            raise ValueError("invalid calibration scales")
+        ids = torch.arange(len(x), device=x.device); h = self.embed(x); reinject = self._reinject(x)
+        means = x.new_empty(len(x), 3); sigmas = x.new_empty(len(x), 3)
+        exits = torch.empty(len(x), dtype=torch.long, device=x.device)
+        for i, (block, head) in enumerate(zip(self.blocks, self.heads)):
+            h = block(h)
+            if reinject is not None:
+                h = h + reinject
+            mean, log = self._predict(head, h); sigma = log.exp() * scales[i]
+            stop = torch.linalg.vector_norm(sigma, dim=1) <= threshold
+            if i == self.depth - 1:
+                stop = torch.ones_like(stop)
+            chosen = ids[stop]; means[chosen] = mean[stop]; sigmas[chosen] = sigma[stop]; exits[chosen] = i
+            ids = ids[~stop]; h = h[~stop]
+            if len(ids) == 0:
+                break
+        return means, sigmas, exits
 
     def operation_costs(self):
         costs = super().operation_costs()
