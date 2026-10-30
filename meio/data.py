@@ -23,12 +23,28 @@ def window_count(n, window, horizon, stride):
 
 def cache_id(meta):
     payload = {k: meta[k] for k in ['version', 'source_bytes', 'fs', 'limits', 'records', 'mean', 'std']}
+    # Enhanced feature caches must never share an identity with the legacy
+    # navigation-only cache or its normalization statistics.
+    for key in ['feature_mode', 'channels']:
+        if key in meta:
+            payload[key] = meta[key]
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
+
+
+def feature_spec(mode):
+    mode = str(mode or 'nav6').lower()
+    if mode == 'nav6':
+        return 6, 'nav_acc(3),nav_gyr(3)'
+    if mode == 'nav_body_attitude':
+        return 16, 'nav_acc(3),nav_gyr(3),body_acc(3),body_gyr(3),quat_wxyz(4)'
+    raise ValueError(f'unsupported feature_mode: {mode}')
 
 def prepare(cfg):
     d = cfg['data']; root = Path(d['cache']); root.mkdir(parents=True, exist_ok=True)
     path = Path(d['h5'])
     limits = {k: d.get(k) for k in ['max_records', 'max_samples']}
+    feature_mode = d.get('feature_mode', 'nav6')
+    channels, feature_names = feature_spec(feature_mode)
     records = []; offset = 0
     with h5py.File(path, 'r') as f:
         for split in ['train', 'valid', 'test']:
@@ -44,38 +60,54 @@ def prepare(cfg):
                                     t0=float(g['ts'][0]), t1=float(g['ts'][n-1])))
                 offset += n
         expected = dict(version=CACHE_VERSION, source_bytes=path.stat().st_size, fs=d['fs'], limits=limits, records=records)
+        if feature_mode != 'nav6':
+            expected.update(feature_mode=feature_mode, channels=channels)
         marker = root/'manifest.json'
         if marker.exists():
             meta = json.loads(marker.read_text(encoding='utf-8'))
             if any(meta.get(k) != v for k,v in expected.items()):
                 raise ValueError('cache does not match source/limits/fs; choose a new cache directory')
-            for key, shape in [('signals', (offset,6)), ('positions',(offset,3))]:
+            for key, shape in [('signals', (offset,channels)), ('positions',(offset,3))]:
                 a = np.load(root/(key+'.npy'), mmap_mode='r')
                 if a.shape != shape or a.dtype != np.float32: raise ValueError('invalid cache array '+key)
             if meta.get('identity') != cache_id(meta): raise ValueError('invalid cache identity')
             print('Using complete cache:', root, flush=True)
             return meta
-        signals = np.lib.format.open_memmap(root/'signals.npy', mode='w+', dtype='float32', shape=(offset,6))
+        signals = np.lib.format.open_memmap(root/'signals.npy', mode='w+', dtype='float32', shape=(offset,channels))
         positions = np.lib.format.open_memmap(root/'positions.npy', mode='w+', dtype='float32', shape=(offset,3))
-        mean = np.zeros(6); m2 = np.zeros(6); total = 0
+        mean = np.zeros(channels); m2 = np.zeros(channels); total = 0
         for i, r in enumerate(records):
             g = f[r['split']][r['name']]; n = r['n']; sl = slice(0,n)
             acc, gyr, q, pos, ts = [np.asarray(g[k][sl], dtype=np.float64) for k in ['acc','gyr','qua','pos','ts']]
             if not all(np.isfinite(a).all() for a in [acc,gyr,q,pos,ts]): raise ValueError('non-finite data: '+r['name'])
-            if np.max(np.abs(np.linalg.norm(q,axis=1)-1)) > .01: raise ValueError('invalid wxyz quaternion: '+r['name'])
+            q_norm = np.linalg.norm(q, axis=1)
+            if np.max(np.abs(q_norm-1)) > .01: raise ValueError('invalid wxyz quaternion: '+r['name'])
+            q = q / np.maximum(q_norm[:, None], 1e-12)
+            # q and -q encode the same orientation. Canonicalize sign using
+            # only the preceding sample so the online feature has no lookahead.
+            if len(q) > 1:
+                flips = np.flatnonzero(np.sum(q[1:] * q[:-1], axis=1) < 0) + 1
+                q[flips] *= -1
             if not np.allclose(np.diff(ts), 1/d['fs'], rtol=.02, atol=1e-5): raise ValueError('irregular timestamps: '+r['name'])
             nav = np.concatenate([rotate(acc,q), rotate(gyr,q)], axis=1)
-            start = r['offset']; signals[start:start+n] = nav; positions[start:start+n] = pos
+            features = nav if feature_mode == 'nav6' else np.concatenate([nav, acc, gyr, q], axis=1)
+            start = r['offset']; signals[start:start+n] = features; positions[start:start+n] = pos
             if r['split'] == 'train':
-                part_mean = nav.mean(0); delta = part_mean-mean; new_total=total+n
-                m2 += ((nav-part_mean)**2).sum(0) + delta**2*total*n/new_total
+                part_mean = features.mean(0); delta = part_mean-mean; new_total=total+n
+                m2 += ((features-part_mean)**2).sum(0) + delta**2*total*n/new_total
                 mean += delta*n/new_total; total=new_total
             if i % 100 == 0 or i+1 == len(records):
                 print(f'Cache {i+1}/{len(records)} records', flush=True)
         if total == 0: raise ValueError('no training samples')
         signals.flush(); positions.flush()
         meta = dict(expected, mean=mean.tolist(), std=np.sqrt(np.maximum(m2/total,1e-8)).tolist(),
+                    feature_mode=feature_mode if feature_mode != 'nav6' else None,
+                    channels=channels if feature_mode != 'nav6' else None,
+                    feature_names=feature_names,
                     normalization_source='train only, navigation frame, gravity retained', train_samples=total)
+        if feature_mode == 'nav6':
+            # Preserve the legacy manifest identity for existing checkpoints.
+            meta.pop('feature_mode', None); meta.pop('channels', None)
         meta['identity'] = cache_id(meta)
         write_json(marker, meta)
         return meta

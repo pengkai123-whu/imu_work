@@ -17,7 +17,7 @@ def phase_fraction(epoch, cfg):
 
 def _probe_one_batch(model, device, batch):
     # Function scope releases activation graphs before the caller handles OOM.
-    x=torch.randn(batch,6,model.cfg['window'],device=device)
+    x=torch.randn(batch,model.input_channels,model.cfg['window'],device=device)
     target=torch.zeros(batch,3,device=device); w=exit_weights(model.depth,.5,device)
     for step in range(4):
         if step==1:
@@ -70,13 +70,38 @@ def fit(cfg, resume=None, init=None):
     model=make_model(cfg['model']).to(device)
     if init is not None:
         initial=load_checkpoint(init, device='cpu')
-        if initial['cache_identity'] != meta['identity']:
+        transfer = bool(t.get('allow_transfer_init', False))
+        if initial['cache_identity'] != meta['identity'] and not transfer:
             raise ValueError('initial checkpoint/cache mismatch')
-        missing, unexpected = model.load_state_dict(initial['model'], strict=False)
+        source = initial['model']
+        target = model.state_dict()
+        compatible = {}
+        adapted = []
+        with torch.no_grad():
+            for name, value in source.items():
+                if name not in target:
+                    continue
+                if value.shape == target[name].shape:
+                    compatible[name] = value
+                    continue
+                # New feature channels are initialized as zero extensions of
+                # the old six-channel filters. The old function is preserved
+                # at step zero while the added channels remain trainable.
+                if transfer and name in {'embedding.weight', 'spectral_residual.freq.0.weight', 'spectral_residual.wave.0.weight'}:
+                    expanded = target[name].clone()
+                    expanded.zero_()
+                    common = tuple(min(a, b) for a, b in zip(value.shape, expanded.shape))
+                    slices = tuple(slice(0, n) for n in common)
+                    expanded[slices] = value[slices]
+                    compatible[name] = expanded
+                    adapted.append(name)
+        missing, unexpected = model.load_state_dict(compatible, strict=False)
         allowed_missing = {key for key in model.state_dict() if key.startswith('spectral_residual.') or key.startswith('temporal_mixer.') or key.startswith('output_residual.') or key.startswith('sample_ssm.') or key.startswith('multiscale_residual.') or '.ssm_channels.' in key or '.ssm_gate' in key or key in {'spectral_gate', 'spectral_reinject_gate', 'temporal_gate', 'output_gate', 'sample_ssm_gate', 'multiscale_gate'}}
+        if transfer:
+            allowed_missing.update({'embedding.weight', 'spectral_residual.freq.0.weight', 'spectral_residual.wave.0.weight'})
         if not set(missing).issubset(allowed_missing) or unexpected:
             raise ValueError(f'initial checkpoint mismatch: missing={missing}, unexpected={unexpected}')
-        print('Initialized from:', init, 'new keys:', sorted(missing), flush=True)
+        print('Initialized from:', init, 'transfer=', transfer, 'adapted:', adapted, 'new keys:', sorted(missing), flush=True)
     if t.get('freeze_base', False):
         if cfg['model'].get('variant') != 'spectral':
             raise ValueError('freeze_base currently requires a residual model variant')
@@ -130,7 +155,10 @@ def fit(cfg, resume=None, init=None):
                 for i,(x,y) in enumerate(loader):
                     if t.get('limit_batches') and i>=t['limit_batches']: break
                     x=x.to(device,non_blocking=True); y=y.to(device,non_blocking=True)
-                    if t['augment']: x,y=augment(x,y)
+                    if t['augment']:
+                        if model.input_channels != 6:
+                            raise ValueError('yaw augmentation is only valid for the legacy six-channel navigation cache')
+                        x,y=augment(x,y)
                     optimizer.zero_grad(set_to_none=True)
                     with torch.autocast(device_type=device.type,dtype=torch.float16,enabled=device.type=='cuda'):
                         means,logs=model((x-mean)/std)

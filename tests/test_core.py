@@ -4,7 +4,7 @@ import h5py
 import numpy as np
 import torch
 from meio.common import read_config, write_json
-from meio.data import prepare, Windows, rotate, window_count, augment
+from meio.data import prepare, Windows, rotate, window_count, augment, feature_spec
 from meio.model import MEIO, losses, exit_weights
 from meio.evaluate import trajectory_metrics, fixed_duration_metrics
 
@@ -88,6 +88,14 @@ class CoreTests(unittest.TestCase):
         x,y=augment(torch.randn(4,6,20),torch.randn(4,3))
         self.assertEqual(tuple(x.shape),(4,6,20)); self.assertEqual(tuple(y.shape),(4,3))
         self.assertTrue(torch.isfinite(x).all())
+
+    def test_body_attitude_feature_contract(self):
+        self.assertEqual(feature_spec('nav6')[0], 6)
+        self.assertEqual(feature_spec('nav_body_attitude')[0], 16)
+        cfg=dict(window=20,patch=5,dim=16,depth=3,expansion=2,dropout=0.,min_sigma=.01,max_sigma=10.,input_channels=16)
+        model=MEIO(cfg)
+        means,logs=model(torch.randn(2,16,20))
+        self.assertEqual(tuple(means.shape),(2,3,3)); self.assertEqual(tuple(logs.shape),(2,3,3))
 
     def test_fixed_duration_keeps_all_segments_and_counts_tail(self):
         target=np.zeros((125,3)); pred=np.zeros_like(target)

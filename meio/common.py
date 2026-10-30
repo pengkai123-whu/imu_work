@@ -14,6 +14,13 @@ def read_config(path):
     for section, key in [("data", "h5"), ("data", "cache"), ("train", "out")]:
         cfg[section][key] = str((path.parent / cfg[section][key]).resolve())
     d, m, t = cfg["data"], cfg["model"], cfg["train"]
+    feature_mode = str(d.get("feature_mode", "nav6")).lower()
+    expected_channels = {"nav6": 6, "nav_body_attitude": 16}
+    if feature_mode not in expected_channels:
+        raise ValueError("unsupported data.feature_mode: " + feature_mode)
+    m.setdefault("input_channels", expected_channels[feature_mode])
+    if int(m["input_channels"]) != expected_channels[feature_mode]:
+        raise ValueError("model.input_channels does not match data.feature_mode")
     if d["window"] != m["window"] or d["window"] < 1 or d["horizon"] < 1:
         raise ValueError("positive, matching input windows and positive horizon required")
     if m["patch"] < 1 or d["window"] % m["patch"] or m["depth"] < 1 or m["dim"] < 1 or m["expansion"] <= 0:

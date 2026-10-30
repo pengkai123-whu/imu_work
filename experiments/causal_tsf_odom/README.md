@@ -1,6 +1,7 @@
 # Causal TSF Odometry Experiments
 
 This directory implements the incremental experiment plan in `research_review/03_CAUSAL_METHOD/README.md`.
+Recent IMU/PDR neighbors and their transfer boundaries are recorded in [`research/IMU_LOCALIZATION_NEIGHBORS.md`](../../research/IMU_LOCALIZATION_NEIGHBORS.md).
 
 Variants:
 
@@ -47,3 +48,9 @@ The screen was run with seed 6, 20 epochs, CUDA, and the same cached navigation-
 The TSF branches improve the small-model time baseline, and cross-patch is the best of these candidates on the validation selection rule. The frozen MEIO checkpoint was trained on all training records, so it is a stronger data-budget baseline than the 24-record screen; this table is not a final claim.
 
 The full `tsf_patch` run (20 epochs, all records) reaches `ATE=3.1991`, `RTE30=1.5297`, and `DispRMSE=0.1242`, compared with the existing MEIO final report `1.8550`, `1.0589`, and `0.09745`. The current candidate therefore does not meet the requested 30% improvement threshold. It is a reproducible candidate implementation and ablation scaffold, not yet a publishable breakthrough.
+
+## Recent IMU feature screen
+
+The recent IMU/PDR literature is used as a source of testable hypotheses, not as a direct transfer of reported numbers. The first added-information screen is `configs/yt_spectral_body_attitude_transfer_screen.json`: it builds a separate 16-channel cache (`nav_acc`, `nav_gyr`, raw body `acc`, raw body `gyr`, and `quat_wxyz`) and initializes from the existing spectral checkpoint with zero-extended input filters. This preserves the old model at initialization and keeps the experiment online: quaternion signs are canonicalized from the previous sample only, and no future position is used.
+
+The 24-record transfer screen gives ATE 1.57009 m, RTE30 1.00540 m, and one-step RMSE 0.09025 m versus 1.61655 / 1.00785 / 0.08973 for the three-domain navigation-only reference. Since only ATE improves, the module is recorded as mixed and is not included in the primary model yet. Full-data confirmation is required before treating body-frame observability as a contribution.

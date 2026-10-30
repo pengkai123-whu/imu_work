@@ -78,7 +78,8 @@ class MEIO(nn.Module):
         super().__init__()
         self.cfg = dict(cfg); self.depth = cfg["depth"]
         tokens = cfg["window"] // cfg["patch"]
-        self.embedding = nn.Conv1d(6, cfg["dim"], cfg["patch"], stride=cfg["patch"])
+        self.input_channels = int(cfg.get("input_channels", 6))
+        self.embedding = nn.Conv1d(self.input_channels, cfg["dim"], cfg["patch"], stride=cfg["patch"])
         selected_ssm = {int(i) for i in cfg.get("ssm_blocks", [])}
         blocks = []
         for index in range(self.depth):
@@ -89,8 +90,8 @@ class MEIO(nn.Module):
         self.blocks = nn.ModuleList(blocks)
         self.heads = nn.ModuleList([Head(cfg["dim"], cfg["min_sigma"], cfg["max_sigma"]) for _ in range(self.depth)])
     def embed(self, x):
-        if x.ndim != 3 or x.shape[1:] != (6, self.cfg["window"]):
-            raise ValueError("expected [batch, 6, window]")
+        if x.ndim != 3 or x.shape[1:] != (self.input_channels, self.cfg["window"]):
+            raise ValueError(f"expected [batch, {self.input_channels}, window]")
         return self.embedding(x).transpose(1, 2)
     def _predict(self, head, h):
         mean, log = head(h)
@@ -128,7 +129,7 @@ class MEIO(nn.Module):
     def operation_costs(self):
         # Linear/Conv multiply-add = 2 FLOPs. Excludes activations/routing/memory.
         d = self.cfg["dim"]; t = self.cfg["window"] // self.cfg["patch"]; h = int(d*self.cfg["expansion"])
-        embedding = 2*t*d*6*self.cfg["patch"]
+        embedding = 2*t*d*self.input_channels*self.cfg["patch"]
         block = 2*t*t*d + 4*t*d*h
         head = 4*(d*d + d*3)
         return dict(final=embedding+self.depth*block+head,
@@ -137,17 +138,18 @@ class MEIO(nn.Module):
 
 class SpectralResidual(nn.Module):
     """Signed Fourier/graph/Haar residual aligned to MEIO patch tokens."""
-    def __init__(self, dim, tokens, domains=None, domain_attention=False):
+    def __init__(self, dim, tokens, domains=None, domain_attention=False, input_channels=6):
         super().__init__()
         self.tokens = tokens
+        self.input_channels = int(input_channels)
         domains = [str(v).lower() for v in (domains or ["fourier", "graph", "wavelet"])]
         allowed = {"fourier", "graph", "wavelet"}
         if not set(domains).issubset(allowed) or not domains:
             raise ValueError("spectral_domains must be a non-empty subset of fourier, graph, wavelet")
         self.domains = tuple(domains)
-        self.freq = nn.Sequential(nn.Conv1d(12, dim, 1), nn.GELU(), nn.Conv1d(dim, dim, 1))
+        self.freq = nn.Sequential(nn.Conv1d(2 * self.input_channels, dim, 1), nn.GELU(), nn.Conv1d(dim, dim, 1))
         self.graph = nn.Sequential(nn.Conv1d(6, dim, 1), nn.GELU(), nn.Conv1d(dim, dim, 1))
-        self.wave = nn.Sequential(nn.Conv1d(6, dim, 1), nn.GELU(), nn.Conv1d(dim, dim, 1))
+        self.wave = nn.Sequential(nn.Conv1d(self.input_channels, dim, 1), nn.GELU(), nn.Conv1d(dim, dim, 1))
         self.fuse = nn.Sequential(nn.Linear(dim * 3, dim), nn.GELU(), nn.LayerNorm(dim))
         self.domain_attention = bool(domain_attention)
         if self.domain_attention:
@@ -167,7 +169,10 @@ class SpectralResidual(nn.Module):
         spec = torch.fft.rfft(x, dim=-1)
         freq = self._pool(self.freq(torch.cat((spec.real, spec.imag), dim=1)))
 
-        acc, gyr = x[:, :3], x[:, 3:]
+        # The first six channels remain the navigation-frame accelerometer and
+        # gyroscope for every feature mode. Extra channels are available to
+        # the Fourier/wavelet branches but do not alter the physical graph.
+        acc, gyr = x[:, :3], x[:, 3:6]
         graph_input = torch.cat(((acc + gyr) * 0.5, acc - gyr), dim=1)
         graph = self._pool(self.graph(graph_input))
 
@@ -281,7 +286,7 @@ class MEIOSpectral(MEIO):
     def __init__(self, cfg):
         super().__init__(cfg)
         tokens = cfg["window"] // cfg["patch"]
-        self.spectral_residual = SpectralResidual(cfg["dim"], tokens, cfg.get("spectral_domains"), cfg.get("spectral_attention", False))
+        self.spectral_residual = SpectralResidual(cfg["dim"], tokens, cfg.get("spectral_domains"), cfg.get("spectral_attention", False), cfg.get("input_channels", 6))
         # At initialization this is exactly the frozen MEIO representation.
         self.spectral_gate = nn.Parameter(torch.zeros(1, 1, cfg["dim"]))
         self.spectral_reinject_gate = nn.Parameter(torch.zeros(1, 1, cfg["dim"])) if cfg.get("spectral_reinject", False) else None
@@ -362,7 +367,8 @@ class MEIOSpectral(MEIO):
         costs = super().operation_costs()
         # Conservative accounting for the three 1x1 projections and FFT.
         d = self.cfg["dim"]; n = self.cfg["window"]
-        extra = 2 * (12 + 6 + 6) * d * n + 5 * n * int(torch.log2(torch.tensor(float(n))))
+        c = int(self.cfg.get("input_channels", 6))
+        extra = 2 * (2 * c + 6 + c) * d * n + 5 * n * int(torch.log2(torch.tensor(float(n))))
         if self.temporal_mixer is not None:
             extra += 2 * (3 * d + d * d + d * d) * (self.cfg["window"] // self.cfg["patch"])
         if self.multiscale_residual is not None:
