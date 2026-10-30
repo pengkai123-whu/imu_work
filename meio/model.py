@@ -246,6 +246,24 @@ class OutputResidual(nn.Module):
         return self.net(tokens.mean(1))
 
 
+class MultiScaleTemporalResidual(nn.Module):
+    """Parallel short/mid/long temporal filters over the current IMU window."""
+    def __init__(self, dim, tokens):
+        super().__init__()
+        self.tokens = tokens
+        self.branches = nn.ModuleList([
+            nn.Sequential(nn.Conv1d(6, dim, 5, padding=2), nn.GELU()),
+            nn.Sequential(nn.Conv1d(6, dim, 15, padding=7), nn.GELU()),
+            nn.Sequential(nn.Conv1d(6, dim, 31, padding=15), nn.GELU()),
+        ])
+        self.fuse = nn.Sequential(nn.Linear(3 * dim, dim), nn.GELU(), nn.LayerNorm(dim))
+
+    def forward(self, x):
+        pooled = [nn.functional.adaptive_avg_pool1d(branch(x), self.tokens).transpose(1, 2)
+                  for branch in self.branches]
+        return self.fuse(torch.cat(pooled, dim=-1))
+
+
 class MEIOSpectral(MEIO):
     """MEIO with a zero-initialized causal three-domain token residual."""
     def __init__(self, cfg):
@@ -265,12 +283,16 @@ class MEIOSpectral(MEIO):
         self.output_gate = nn.Parameter(torch.zeros(1, 3)) if self.output_residual is not None else None
         self.sample_ssm = SampleSSMResidual(cfg["dim"], tokens) if cfg.get("sample_ssm", False) else None
         self.sample_ssm_gate = nn.Parameter(torch.zeros(1, 1, cfg["dim"])) if self.sample_ssm is not None else None
+        self.multiscale_residual = MultiScaleTemporalResidual(cfg["dim"], tokens) if cfg.get("multiscale_residual", False) else None
+        self.multiscale_gate = nn.Parameter(torch.zeros(1, 1, cfg["dim"])) if self.multiscale_residual is not None else None
 
     def embed(self, x):
         base = super().embed(x)
         out = base + self.spectral_gate * self.spectral_residual(x)
         if self.sample_ssm is not None:
             out = out + self.sample_ssm_gate * self.sample_ssm(x)
+        if self.multiscale_residual is not None:
+            out = out + self.multiscale_gate * self.multiscale_residual(x)
         if self.temporal_mixer is not None:
             out = out + self.temporal_gate * self.temporal_mixer(base)
         return out
@@ -282,6 +304,8 @@ class MEIOSpectral(MEIO):
         extra = 2 * (12 + 6 + 6) * d * n + 5 * n * int(torch.log2(torch.tensor(float(n))))
         if self.temporal_mixer is not None:
             extra += 2 * (3 * d + d * d + d * d) * (self.cfg["window"] // self.cfg["patch"])
+        if self.multiscale_residual is not None:
+            extra += 2 * d * (6 * (5 + 15 + 31) + 3 * d) * self.cfg["window"]
         costs["final"] += extra
         costs["dynamic"] = [value + extra for value in costs["dynamic"]]
         return costs

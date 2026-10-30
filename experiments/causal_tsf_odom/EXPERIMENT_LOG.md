@@ -19,6 +19,7 @@ All rows use the same 24-record screening subset, the final MEIO exit, full-reco
 | MLP + gated SSM residual in blocks 6--7 | 1.65457 | 1.02383 | 0.08884 | reject |
 | three-domain + local trend consistency loss | 1.64985 | 1.02813 | 0.08928 | reject |
 | three-domain + sample-level causal SSM | 1.65475 | 1.02364 | 0.08885 | reject |
+| three-domain + multi-scale temporal residual | 1.64775 | 1.03241 | **0.08914** | reject; step RMSE only, trajectory metrics worse |
 
 ## Full-data scale check
 
