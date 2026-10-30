@@ -11,6 +11,7 @@ def main():
     parser.add_argument('--h5',help='Override local H5 path')
     parser.add_argument('--out',help='Override run directory')
     parser.add_argument('--device',help='Override configured device, e.g. cuda or cuda:0')
+    parser.add_argument('--init',help='Initialize a new model from an existing checkpoint')
     parser.add_argument('--batch',type=int,help='Requested batch; use --no-auto-batch for a fixed batch')
     parser.add_argument('--no-auto-batch',action='store_true')
     args=parser.parse_args()
@@ -38,7 +39,7 @@ def main():
     from meio.data import prepare
     from meio.train import fit
     prepare(cfg)
-    checkpoint=fit(cfg,resume)
+    checkpoint=fit(cfg,resume, args.init)
     print('Training complete. Best checkpoint:',checkpoint,flush=True)
     print('Next: python test.py --checkpoint "'+checkpoint+'"',flush=True)
 

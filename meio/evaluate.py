@@ -5,12 +5,12 @@ import torch
 from torch.utils.data import DataLoader, Subset
 from .common import load_checkpoint, device_for, write_json, file_hash, checked_tensor
 from .data import Windows, read_meta
-from .model import MEIO
+from .model import make_model
 
 def context(checkpoint, cache, device):
     saved=load_checkpoint(checkpoint); meta=read_meta(cache)
     if saved['cache_identity']!=meta['identity']: raise ValueError('checkpoint and cache identity mismatch')
-    model=MEIO(saved['model_cfg']).to(device); model.load_state_dict(saved['model']); model.eval()
+    model=make_model(saved['model_cfg']).to(device); model.load_state_dict(saved['model']); model.eval()
     mean=torch.tensor(saved['mean'],device=device,dtype=torch.float32)[None,:,None]
     std=torch.tensor(saved['std'],device=device,dtype=torch.float32)[None,:,None]
     return saved,meta,model,mean,std

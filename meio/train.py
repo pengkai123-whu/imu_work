@@ -8,7 +8,7 @@ import torch
 from torch.utils.data import DataLoader
 from .common import device_for, seed_all, save_checkpoint, load_checkpoint, write_json, checked_tensor
 from .data import Windows, BlockBatches, augment, read_meta
-from .model import MEIO, exit_weights, losses
+from .model import make_model, exit_weights, losses
 
 def phase_fraction(epoch, cfg):
     if epoch < cfg['mse_epochs']: return 0.0
@@ -24,7 +24,7 @@ def _probe_one_batch(model, device, batch):
             torch.cuda.synchronize(device); started=time.perf_counter()
         model.zero_grad(set_to_none=True)
         with torch.autocast(device_type='cuda',dtype=torch.float16): means,logs=model(x)
-        loss=losses(means.float(),logs.float(),target,w,1.); loss.backward()
+        loss=losses(means.float(),logs.float(),target,w,1.,0.); loss.backward()
     torch.cuda.synchronize(device)
     return (time.perf_counter()-started)/3
 
@@ -62,12 +62,32 @@ def validate(model, loader, mean, std, device, limit=None):
     if not n: raise ValueError('empty validation')
     return (sq/n).sqrt().cpu().tolist()
 
-def fit(cfg, resume=None):
+def fit(cfg, resume=None, init=None):
     t,d=cfg['train'],cfg['data']; seed_all(t['seed']); torch.set_num_threads(t.get('cpu_threads',4))
     device=device_for(t['device']); meta=read_meta(d['cache'])
     out=Path(t['out']); out.mkdir(parents=True,exist_ok=True)
     if resume is None and (out/'last.pt').exists(): raise FileExistsError('run exists: set resume or choose a new out directory')
-    model=MEIO(cfg['model']).to(device); optimizer=torch.optim.Adam(model.parameters(),lr=t['lr'])
+    model=make_model(cfg['model']).to(device)
+    if init is not None:
+        initial=load_checkpoint(init, device='cpu')
+        if initial['cache_identity'] != meta['identity']:
+            raise ValueError('initial checkpoint/cache mismatch')
+        missing, unexpected = model.load_state_dict(initial['model'], strict=False)
+        allowed_missing = {key for key in model.state_dict() if key.startswith('spectral_residual.') or key.startswith('temporal_mixer.') or key.startswith('output_residual.') or '.ssm_channels.' in key or '.ssm_gate' in key or key in {'spectral_gate', 'temporal_gate', 'output_gate'}}
+        if not set(missing).issubset(allowed_missing) or unexpected:
+            raise ValueError(f'initial checkpoint mismatch: missing={missing}, unexpected={unexpected}')
+        print('Initialized from:', init, 'new keys:', sorted(missing), flush=True)
+    if t.get('freeze_base', False):
+        if cfg['model'].get('variant') != 'spectral':
+            raise ValueError('freeze_base currently requires a residual model variant')
+        trainable_prefixes = ('spectral_residual.', 'spectral_gate', 'temporal_mixer.', 'temporal_gate', 'output_residual.', 'output_gate')
+        for name, parameter in model.named_parameters():
+            parameter.requires_grad = name.startswith(trainable_prefixes) or '.ssm_channels.' in name or '.ssm_gate' in name
+        trainable = [parameter for parameter in model.parameters() if parameter.requires_grad]
+        if not trainable:
+            raise ValueError('freeze_base left no trainable parameters')
+        print('Frozen MEIO base; trainable parameters:', sum(p.numel() for p in trainable), flush=True)
+    optimizer=torch.optim.Adam([p for p in model.parameters() if p.requires_grad],lr=t['lr'])
     scaler=torch.amp.GradScaler('cuda',enabled=device.type=='cuda',init_scale=1024.) if hasattr(torch,'amp') and hasattr(torch.amp,'GradScaler') else torch.cuda.amp.GradScaler(enabled=device.type=='cuda',init_scale=1024.)
     start=0; best=float('inf'); saved=None
     if resume:
@@ -86,8 +106,10 @@ def fit(cfg, resume=None):
     if saved:
         torch.set_rng_state(saved['torch_rng']); np.random.set_state(saved['numpy_rng'])
         if device.type=='cuda' and len(saved.get('cuda_rng',[]))==torch.cuda.device_count(): torch.cuda.set_rng_state_all(saved['cuda_rng'])
-    data=Windows(d['cache'],'train',d['window'],d['horizon'],d['train_stride'])
-    valid=Windows(d['cache'],'valid',d['window'],d['horizon'],d['valid_stride'])
+    data=Windows(d['cache'],'train',d['window'],d['horizon'],d['train_stride'],
+                 max_records=t.get('max_train_records'), max_windows=t.get('max_train_windows'))
+    valid=Windows(d['cache'],'valid',d['window'],d['horizon'],d['valid_stride'],
+                  max_records=t.get('max_valid_records'), max_windows=t.get('max_valid_windows'))
     weights=exit_weights(model.depth,t['gamma'],device)
     mean=torch.tensor(meta['mean'],device=device,dtype=torch.float32)[None,:,None]
     std=torch.tensor(meta['std'],device=device,dtype=torch.float32)[None,:,None]
@@ -112,7 +134,7 @@ def fit(cfg, resume=None):
                     optimizer.zero_grad(set_to_none=True)
                     with torch.autocast(device_type=device.type,dtype=torch.float16,enabled=device.type=='cuda'):
                         means,logs=model((x-mean)/std)
-                    loss=losses(means.float(),logs.float(),y,weights,alpha); checked_tensor(loss,'training loss')
+                    loss=losses(means.float(),logs.float(),y,weights,alpha,t.get('trend_loss_weight',0.0)); checked_tensor(loss,'training loss')
                     scaler.scale(loss).backward(); scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(model.parameters(),t['clip_grad'],error_if_nonfinite=device.type!='cuda')
                     old_scale=scaler.get_scale(); scaler.step(optimizer); scaler.update()

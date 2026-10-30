@@ -86,10 +86,22 @@ def read_meta(cache):
     return meta
 
 class Windows(Dataset):
-    def __init__(self, cache, split, window, horizon, stride, record_name=None):
+    def __init__(self, cache, split, window, horizon, stride, record_name=None,
+                 max_records=None, max_windows=None):
         self.cache=str(cache); self.meta=read_meta(cache); self.window=window; self.horizon=horizon; self.stride=stride
         self.records=[r for r in self.meta['records'] if r['split']==split and (record_name is None or r['name']==record_name)]
-        self.counts=np.array([window_count(r['n'],window,horizon,stride) for r in self.records],dtype=np.int64)
+        if max_records is not None and record_name is None:
+            self.records=self.records[:int(max_records)]
+        counts=[window_count(r['n'],window,horizon,stride) for r in self.records]
+        if max_windows is not None and record_name is None:
+            remaining=int(max_windows); selected=[]; selected_counts=[]
+            for record, count in zip(self.records, counts):
+                if remaining <= 0: break
+                take=min(int(count), remaining)
+                if take:
+                    selected.append(record); selected_counts.append(take); remaining-=take
+            self.records, counts=selected, selected_counts
+        self.counts=np.array(counts,dtype=np.int64)
         self.ends=np.cumsum(self.counts); self.starts=np.r_[0,self.ends[:-1]]
         self.offsets=np.array([r['offset'] for r in self.records],dtype=np.int64)
         self._pid=None; self._signals=None; self._positions=None
